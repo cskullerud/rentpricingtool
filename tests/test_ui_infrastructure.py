@@ -75,11 +75,12 @@ def test_form_has_the_planned_fields():
     assert 'id="coordinates"' in html and "collapse" in html
 
 
-def test_form_submission_is_not_enabled_yet():
+def test_form_submission_is_enabled():
     html = client.get("/ui/").text
-    assert re.search(r'<button type="submit"[^>]*id="submit-button" disabled>', html)
-    assert "not connected yet" in html
-    assert client.post("/ui/valuation", data={"address": "x"}).status_code in (404, 405)
+    assert re.search(r'<button type="submit"[^>]*id="submit-button">', html)
+    assert "disabled" not in re.search(r'<button type="submit".*?</button>', html, re.S).group(0)
+    assert "not connected yet" not in html
+    assert 'method="post" action="/ui/valuation"' in html
 
 
 # --- data source badge -----------------------------------------------------------------

@@ -191,12 +191,17 @@ framework, no build step and no CDN: Bootstrap's CSS and JS are vendored in
 
 ```
 app/
-  routers/ui.py        HTML routes (hidden from OpenAPI): GET /ui, /ui/, /ui/history
+  routers/ui.py        HTML routes (hidden from OpenAPI): GET /ui, /ui/, POST /ui/valuation, /ui/history
   ui/
-    templating.py      Jinja2Templates, the u() URL helper, the data-source badge
+    templating.py      Jinja2Templates, the ui_url() URL helper, the data-source badge, render()
     ingress.py         IngressMiddleware: X-Ingress-Path -> ASGI root_path
-  templates/           base.html (navbar, theme, footer), valuation_form.html, history.html
-  static/              mounted at /ui/static: vendor/bootstrap, css/app.css
+    forms.py           ValuationForm: parsing, per-field messages, keeps what was typed
+    csrf.py            cookie-bound CSRF tokens
+    viewmodels.py      money(), confidence styles, funnel rows, the insufficient-data explanation
+    errors.py          HTML error pages (404, 405, provider problems), is_ui_page_request()
+  templates/           base.html, valuation_form.html, history.html, error.html
+    partials/          _form_fields, _result_card, _confidence_badge, _funnel, _insufficient, _alert
+  static/              mounted at /ui/static: vendor/bootstrap, css/app.css, js/app.js
 ```
 
 - **Ingress-safe URLs.** Home Assistant ingress serves the app under a prefix and reports it in
@@ -204,14 +209,45 @@ app/
   `/`, only letters, digits and `_ . - /`, no `..`, at most 200 characters; anything else is
   ignored), and templates build every link, form action and static URL with `{{ u('/ui/...') }}`.
   Without the header the prefix is empty. The JSON API is not affected.
+- **The valuation form.** `POST /ui/valuation` reads the form (`forms.py`), builds the same
+  `ValuationRequest` the API uses, and calls the same `run_valuation()` with the same
+  dependencies (`get_comparable_source`, `get_geocoder`, `get_repository`), off the event loop.
+  There is no valuation logic in the UI, and each successful valuation is saved to history just
+  like an API call. The page can show:
+  - a **result** (recommended rent, confidence badge, comparable count, 25th/median/75th
+    percentile and average, and the funnel) with the form below for another run;
+  - **insufficient data** (found vs. required, an explanation of the first stage that ran
+    short, the funnel, and no confidence badge);
+  - **field errors** (HTTP 422), one plain message per field, with everything typed kept;
+  - an **alert** for an expired form (403), an unknown address (422, with the coordinates
+    section opened), or a data-source problem (502/503) or unexpected failure (500), always a
+    generic message with no technical detail (the detail is logged).
+  The form's own rules (address required, bedrooms >= 0, bathrooms >= 0, square feet > 0,
+  latitude and longitude together or not at all) are for the user; the API's rules are unchanged.
+- **CSRF.** A token alone would not stop an attacker whose server fetches one, so it is bound to
+  the visitor: the server sets an HttpOnly, SameSite=Lax cookie (`rpt_csrf`, path = the ingress
+  prefix + `/ui`, 8 hours, `Secure` only behind HTTPS) and the form carries an HMAC of its value.
+  A cross-site page can neither read the cookie nor have the browser send it with a cross-site
+  POST. The HMAC key is `UI_SECRET_KEY` or, if unset, random per process, in which case a form
+  left open across a restart is rejected (403) and shown again with its entries and a fresh
+  token. The token is checked before the form is validated, so a rejected post runs nothing.
+  This protects the paid data source: without it, another web page could make the visitor's
+  browser trigger valuations.
+- **Error pages.** The app-wide handlers return an HTML page for paths under `/ui` (but not
+  `/ui/static`) and exactly the same JSON as before for everything else. This covers errors
+  raised while the router builds its dependencies, which no route code can catch.
+- **Double submits.** `static/js/app.js` disables the button after the first submit, so a
+  valuation (and a possible data-plan request) is not run twice.
+- **Mobile.** Fields stack on phones (`col-12`) and sit in a row from the `sm` breakpoint; all
+  inputs are large with numeric/decimal keyboards; the submit button is full width; result
+  figures use a two-column grid; there are no fixed pixel widths or tables.
 - **No redirects.** `/ui` and `/ui/` are both served directly, because a redirect behind the
   ingress proxy would have to rebuild the URL.
 - **Data-source badge.** The navbar shows MOCK, RENTCAST or CSV from `get_provider_type()`
   (read on every request), or MISCONFIGURED if `DATA_PROVIDER` is invalid. It never builds a
   provider, so it needs no API key and makes no API call.
 - **Theme.** Bootstrap's `data-bs-theme` follows the device's light/dark setting.
-- **Status.** The form is rendered but its submit button is disabled; the history page is a
-  placeholder. Submitting and the real history page come in later steps.
+- **Status.** The valuation form works. The history page is still a placeholder.
 - **Dependencies.** `jinja2` and `python-multipart` (for form posts, in the next step).
 
 ## Geographic modeling
@@ -482,6 +518,10 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
   address only, with coordinates only, and with an unknown address
 - `test_minimum_comparables.py`, `test_quality.py`: the minimum-comparables rule, confidence
   levels, funnel counts, the funnel log line, and diagnostics in the insufficient-data body
+- `test_ui_forms.py`, `test_ui_valuation.py`: form validation, CSRF, view models, the
+  submit flow and every page state (result, insufficient data, field errors, provider errors),
+  escaping, error pages, ingress and mobile layout assertions. They use mock sources and
+  dependency overrides, and fail if anything tries to use the network
 - `test_ui_infrastructure.py`: UI pages and templates, the data-source badge, local Bootstrap
   assets and their checksums, no external URLs, static-file path safety, ingress prefix
   handling (including unsafe header values), and that the JSON API and OpenAPI schema are

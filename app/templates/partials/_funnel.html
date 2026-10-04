@@ -1,0 +1,15 @@
+{# funnel_rows: [{label, count, percent, lost}] in pipeline order #}
+<ul class="list-group list-group-flush" id="funnel">
+  {% for row in funnel_rows %}
+  <li class="list-group-item px-0">
+    <div class="d-flex justify-content-between gap-3">
+      <span>{{ row.label }}</span>
+      <span class="fw-semibold text-nowrap">{{ row.count }}{% if row.lost %} <span class="text-body-secondary fw-normal">(&minus;{{ row.lost }})</span>{% endif %}</span>
+    </div>
+    <div class="progress mt-1" role="progressbar" aria-label="{{ row.label }}"
+         aria-valuenow="{{ row.percent }}" aria-valuemin="0" aria-valuemax="100" style="height: .4rem;">
+      <div class="progress-bar" style="width: {{ row.percent }}%"></div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>

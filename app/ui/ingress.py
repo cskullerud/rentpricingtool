@@ -3,7 +3,7 @@
 Ingress serves the app under a prefix such as /api/hassio_ingress/<token>/ and tells it the
 prefix in the X-Ingress-Path header. The UI must put that prefix in front of every link, form
 action and static URL it emits, so the middleware stores it as the ASGI `root_path`, and the
-templates build URLs with the `u()` helper (see templating.py). Without the header (running
+templates build URLs with the `ui_url()` helper (see templating.py). Without the header (running
 directly) the prefix is empty and nothing changes.
 """
 import re

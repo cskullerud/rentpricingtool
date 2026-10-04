@@ -20,8 +20,10 @@ computed from a **mock comparable-property dataset**; real data sources come lat
   created automatically)
 - `GET /history` (latest 25 valuations) and `GET /stats` (count and database details)
 - Web UI under `/ui` (Jinja2 + Bootstrap 5.3, served locally with no CDN and no Node tooling).
-  So far: the page layout, navbar, a MOCK/RENTCAST data-source badge and the valuation form
-  (not yet connected). Safe to serve through Home Assistant ingress.
+  The valuation form shows the recommended rent, a confidence badge and how the comparables
+  were narrowed down, or an "insufficient data" explanation, with a MOCK/RENTCAST data-source
+  badge. CSRF-protected and safe to serve through Home Assistant ingress. The history page is
+  still a placeholder.
 - Automated tests
 
 ### Roadmap

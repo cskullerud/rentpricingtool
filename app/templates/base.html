@@ -11,21 +11,21 @@
       document.documentElement.setAttribute("data-bs-theme", dark ? "dark" : "light");
     })();
   </script>
-  <link rel="stylesheet" href="{{ u(STATIC_URL ~ '/vendor/bootstrap/bootstrap.min.css') }}">
-  <link rel="stylesheet" href="{{ u(STATIC_URL ~ '/css/app.css') }}">
+  <link rel="stylesheet" href="{{ ui_url(STATIC_URL ~ '/vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ ui_url(STATIC_URL ~ '/css/app.css') }}">
 </head>
 <body>
   <nav class="navbar navbar-expand bg-body-tertiary border-bottom" aria-label="Main">
     <div class="container-fluid app-container">
-      <a class="navbar-brand fw-semibold" href="{{ u(UI_PREFIX ~ '/') }}">{{ APP_NAME }}</a>
+      <a class="navbar-brand fw-semibold" href="{{ ui_url(UI_PREFIX ~ '/') }}">{{ APP_NAME }}</a>
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
           <a class="nav-link{% if active == 'valuation' %} active{% endif %}"
-             href="{{ u(UI_PREFIX ~ '/') }}"{% if active == 'valuation' %} aria-current="page"{% endif %}>Valuation</a>
+             href="{{ ui_url(UI_PREFIX ~ '/') }}"{% if active == 'valuation' %} aria-current="page"{% endif %}>Valuation</a>
         </li>
         <li class="nav-item">
           <a class="nav-link{% if active == 'history' %} active{% endif %}"
-             href="{{ u(UI_PREFIX ~ '/history') }}"{% if active == 'history' %} aria-current="page"{% endif %}>History</a>
+             href="{{ ui_url(UI_PREFIX ~ '/history') }}"{% if active == 'history' %} aria-current="page"{% endif %}>History</a>
         </li>
       </ul>
       <span id="data-source-badge" class="badge {{ badge.css }}" title="{{ badge.title }}">{{ badge.label }}</span>
@@ -40,6 +40,7 @@
     {{ APP_NAME }} v{{ VERSION }}
   </footer>
 
-  <script src="{{ u(STATIC_URL ~ '/vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ ui_url(STATIC_URL ~ '/vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ ui_url(STATIC_URL ~ '/js/app.js') }}"></script>
 </body>
 </html>

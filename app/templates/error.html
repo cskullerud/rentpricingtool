@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ error_title }}</h1>
+<div class="alert alert-secondary" role="alert" id="error-message">{{ error_message }}</div>
+<a class="btn btn-primary" href="{{ ui_url(UI_PREFIX ~ '/') }}">Back to the valuation form</a>
+{% endblock %}
