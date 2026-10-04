@@ -1,11 +1,10 @@
 from app.services.comparables import (
-    MOCK_COMPARABLES,
     filter_by_bathrooms,
     filter_by_bedrooms,
     filter_by_distance,
     filter_by_sqft,
-    load_comparables,
 )
+from app.services.data_sources.mock_source import MOCK_COMPARABLES, MockComparableSource
 
 
 def make(**overrides):
@@ -19,10 +18,11 @@ def test_dataset_size_and_outliers_present():
     assert 900 in rents and 8000 in rents
 
 
-def test_load_comparables_returns_independent_copy():
-    first = load_comparables()
+def test_get_comparables_returns_independent_copy():
+    source = MockComparableSource()
+    first = source.get_comparables()
     first[0]["rent"] = -1
-    assert load_comparables()[0]["rent"] != -1
+    assert source.get_comparables()[0]["rent"] != -1
 
 
 def test_filter_by_distance():

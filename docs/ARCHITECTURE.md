@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Phase 2 - valuation engine on mock comparable data.** This document describes
+Status: **Phase 3 - valuation engine behind a data-source abstraction, running on mock comparable data.** This document describes
 what exists today; planned work is listed at the end.
 
 ## Overview
@@ -10,7 +10,8 @@ Rent Pricing Tool is a small FastAPI service. A client posts a subject property
 25th/50th/75th percentiles, and the average of the comparable properties it was based on.
 
 Everything is in-process and deterministic. There is no database, no network call, and no
-external service. The comparable properties are a static mock dataset.
+external service. The comparable properties come from a `ComparableDataSource`; the only
+implementation today is a static mock dataset.
 
 ## Request flow
 
@@ -20,11 +21,13 @@ Client
   v
 app/main.py                    FastAPI app, mounts the router
   v
-app/routers/valuation.py       validates the body (ValuationRequest), calls the engine,
-  |                            maps the result to ValuationResponse, maps errors to HTTP
+app/routers/valuation.py       validates the body (ValuationRequest), picks the data source,
+  |                            calls the engine, maps the result to ValuationResponse and
+  |                            errors to HTTP
   v
-app/services/valuation_engine.py   run_valuation(subject)
-  |-- comparables.py             load mock data, filter to similar properties
+app/services/valuation_engine.py   run_valuation(subject, source)
+  |-- source.get_comparables()   ComparableDataSource (injected by the router)
+  |-- comparables.py             filter to similar properties
   '-- statistics.py              remove outliers, compute percentiles and average
   v
 JSON response
@@ -41,8 +44,13 @@ app/
     valuation.py          POST /valuation
   services/
     statistics.py         Percentiles, average, standard deviation, IQR outlier removal
-    comparables.py        Mock dataset and the four filters
+    comparables.py        The four filters (distance, bedrooms, bathrooms, sqft)
     valuation_engine.py   Orchestrates the valuation workflow
+    data_sources/
+      base.py             Comparable type and the ComparableDataSource interface
+      mock_source.py      MockComparableSource and the 26-record mock dataset
+      future_rentcast.py  Stub: planned RentCast provider (TODO comments only)
+      future_csv.py       Stub: planned CSV provider (TODO comments only)
 tests/                    pytest suite (API, services)
 docs/                     Documentation
 scripts/                  Helper scripts (empty)
@@ -53,21 +61,24 @@ data/                     Local data, contents git-ignored (empty)
 
 | Layer | Module | Responsibility | Knows about |
 |---|---|---|---|
-| HTTP | `routers/valuation.py` | Parse and validate input, translate errors to status codes | schemas, engine |
+| HTTP | `routers/valuation.py` | Parse and validate input, choose the data source, translate errors to status codes | schemas, engine, data sources |
 | Contract | `schemas.py` | Shape of requests and responses | nothing |
-| Domain | `services/valuation_engine.py` | The valuation workflow | schemas (request type), comparables, statistics |
-| Domain | `services/comparables.py` | Comparable data and filtering | nothing |
+| Domain | `services/valuation_engine.py` | The valuation workflow | schemas (request type), `ComparableDataSource` (interface only), comparables, statistics |
+| Domain | `services/comparables.py` | Filtering comparables | `Comparable` type |
+| Data | `services/data_sources/` | Supplying comparable properties | nothing outside the package |
 | Domain | `services/statistics.py` | Numeric helpers | nothing |
 | Config | `config.py` | Settings from the environment | nothing |
 
-The routers depend on services, and services never import from routers. `statistics.py`
-and `comparables.py` are independent leaf modules, so each can be tested on its own.
+The routers depend on services, and services never import from routers. The engine depends
+on the `ComparableDataSource` interface, never on a concrete provider; only the router
+names one. `statistics.py` and `comparables.py` are small modules that can be tested on
+their own.
 
 ## Valuation algorithm
 
 `run_valuation(subject)` in `valuation_engine.py`:
 
-1. **Load** a fresh copy of the mock comparables.
+1. **Get** the comparables from the injected `ComparableDataSource`.
 2. **Filter** to properties similar to the subject. All four filters must pass.
 
    | Filter | Rule | Default |
@@ -100,11 +111,51 @@ pricing, i.e. after both filtering and outlier removal.
 
 ### Comparable data
 
-The mock dataset has 26 records, each with `address`, `rent`, `distance_miles`, `beds`,
-`baths` and `sqft`. `distance_miles` is measured from the subject, so the data is not tied
+Each comparable has `address`, `rent`, `distance_miles`, `beds`, `baths` and `sqft`
+(the `Comparable` type in `data_sources/base.py`). The mock dataset has 26 of them. `distance_miles` is measured from the subject, so the data is not tied
 to any particular address. The set deliberately contains two rent outliers (900 and 8000)
 that pass the filters, plus properties the filters should exclude, so every stage of the
 pipeline is exercised.
+
+## Current Data Flow
+
+```
+Valuation Engine
+      │
+      ▼
+ComparableDataSource      (interface: get_comparables() -> list[Comparable])
+      │
+      ▼
+MockComparableSource      (static, in-memory, 26 records)
+```
+
+The engine asks its `ComparableDataSource` for comparables and never learns where they
+came from. `run_valuation(subject, source)` receives the source as an argument
+(dependency injection). The router supplies it through a FastAPI dependency,
+`get_comparable_source()`, which is the single place that names a concrete provider.
+Tests can inject a fake source, or override that dependency to exercise the API with their
+own data, with no change to the engine.
+
+`get_comparables()` returns the unfiltered set. Filtering (`comparables.py`), outlier
+removal and statistics happen in the engine, so every provider is treated the same way.
+
+### Adding a provider
+
+1. Subclass `ComparableDataSource` and implement `get_comparables()`, returning
+   `Comparable` dicts.
+2. Return the provider from `get_comparable_source()` in the router (later this can be
+   chosen from configuration).
+3. Add tests that stub any I/O. The suite makes no network calls.
+
+### Future providers
+
+Two stub modules mark where the next providers go. They contain TODO notes only.
+
+| Provider | Stub | Notes |
+|---|---|---|
+| RentCast | `data_sources/future_rentcast.py` | Fetch listings from the RentCast API and map them to `Comparable`. Needs an API key from the environment, and geocoding to compute `distance_miles`. |
+| CSV | `data_sources/future_csv.py` | Load comparables from a CSV file (for example under `data/`), validating each row. |
+| Other | | Anything that can produce `Comparable` records: a database, another listings API, or a combination of providers. |
 
 ## API
 
@@ -142,7 +193,9 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
 `pytest` runs the whole suite with no network access:
 
 - `test_statistics.py`: percentiles, average, standard deviation, outlier removal
-- `test_comparables.py`: dataset sanity and each filter, including boundaries
+- `test_comparables.py`: mock dataset sanity and each filter, including boundaries
+- `test_data_sources.py`: the interface, the mock source, and injecting a fake source into
+  the engine and the API
 - `test_valuation_engine.py`: result shape, `recommended_rent == median`, outlier handling,
   determinism, the no-comparables error
 - `test_api.py`: endpoints through FastAPI's `TestClient`
@@ -153,8 +206,9 @@ Because the data and the algorithm are deterministic, tests assert exact values.
 
 - **Pure functions over classes.** The services are plain functions that take data and
   return data, which keeps them easy to test and to swap out.
-- **Data behind a function.** The engine calls `load_comparables()` and never touches the
-  dataset directly, so a real data source can replace it without changing the engine.
+- **Data behind an interface.** The engine receives a `ComparableDataSource` and never
+  touches a dataset directly, so a real data source can replace the mock without changing
+  the engine. The source is injected, not constructed inside the engine.
 - **Errors as exceptions in the domain, status codes at the edge.** The engine raises
   `NoComparablesError`; only the router decides that means HTTP 404.
 - **No new dependencies for the math.** Statistics are implemented with the standard
@@ -162,7 +216,8 @@ Because the data and the algorithm are deterministic, tests assert exact values.
 
 ## Known limitations
 
-- Comparables are static mock data, so valuations are illustrative only.
+- The only data source is static mock data, so valuations are illustrative only.
+- The data source is chosen in code (`get_comparable_source()`), not from configuration.
 - Distance is a precomputed field; nothing geocodes the subject's address, and `address`
   is currently accepted but not used in pricing.
 - No confidence score.
@@ -171,6 +226,6 @@ Because the data and the algorithm are deterministic, tests assert exact values.
 
 ## Planned (from the README roadmap)
 
-- RentCast integration to replace the mock comparables
+- RentCast and CSV providers (stubbed in `data_sources/`) to replace the mock comparables
 - Geocoding, so distance is computed from the subject's address
 - Persistence layer

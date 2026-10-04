@@ -5,8 +5,8 @@ from app.services.comparables import (
     filter_by_bedrooms,
     filter_by_distance,
     filter_by_sqft,
-    load_comparables,
 )
+from app.services.data_sources.mock_source import MockComparableSource
 from app.services.statistics import (
     calculate_average,
     calculate_percentiles,
@@ -45,7 +45,7 @@ def test_empty_input_raises(fn):
 
 def test_remove_outliers_drops_900_and_8000():
     # The comparables that match a 3 bed / 2 bath / 1400 sqft subject, as the engine sees them.
-    matches = load_comparables()
+    matches = MockComparableSource().get_comparables()
     matches = filter_by_distance(matches)
     matches = filter_by_bedrooms(matches, 3)
     matches = filter_by_bathrooms(matches, 2)

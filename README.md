@@ -42,7 +42,7 @@ copy `.env.example` to `.env` and add `--env-file .env` to the `uvicorn` command
 
 ## How a valuation works
 
-1. Load the mock comparables.
+1. Get comparables from the data source (currently a mock dataset).
 2. Keep those within 1 mile, +/- 1 bedroom, +/- 1 bathroom and +/- 20% sqft of the subject.
 3. Drop rent outliers (below Q1 - 1.5 x IQR or above Q3 + 1.5 x IQR).
 4. Report p25, median, p75 and average of what remains. `recommended_rent` is the median,
@@ -72,7 +72,7 @@ pytest
 
 ```
 app/            FastAPI app: main.py, config.py, schemas.py, routers/valuation.py,
-                services/ (statistics, comparables, valuation_engine)
+                services/ (statistics, comparables, valuation_engine, data_sources/)
 tests/          pytest tests
 docs/           documentation
 scripts/        helper scripts
