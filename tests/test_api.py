@@ -21,7 +21,9 @@ def test_valuation_returns_engine_result():
     response = client.post("/valuation", json=SUBJECT)
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"comparable_count", "p25", "median", "p75", "average", "recommended_rent"}
+    assert set(body) == {
+        "comparable_count", "p25", "median", "p75", "average", "recommended_rent", "confidence", "funnel",
+    }
     assert body["comparable_count"] > 0
     assert body["recommended_rent"] == body["median"]
 

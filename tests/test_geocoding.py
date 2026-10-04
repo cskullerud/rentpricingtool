@@ -17,7 +17,12 @@ SOURCE = MockComparableSource()
 SUBJECT = {"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}
 SAMPLE_RESPONSE = {
     "comparable_count": 16, "recommended_rent": 2512, "p25": 2419,
-    "median": 2512, "p75": 2606, "average": 2505,
+    "median": 2512, "p75": 2606, "average": 2505, "confidence": "high",
+    "funnel": {
+        "comparables_fetched": 26, "comparables_after_distance_filter": 24,
+        "comparables_after_attribute_filter": 18, "comparables_after_outlier_filter": 16,
+        "comparables_used": 16,
+    },
 }
 
 

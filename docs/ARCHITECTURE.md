@@ -130,12 +130,49 @@ their own.
      "median": 2512,
      "p75": 2606,
      "average": 2505,
-     "recommended_rent": 2512
+     "recommended_rent": 2512,
+     "confidence": "high",
+     "funnel": {
+       "comparables_fetched": 26,
+       "comparables_after_distance_filter": 24,
+       "comparables_after_attribute_filter": 18,
+       "comparables_after_outlier_filter": 16,
+       "comparables_used": 16
+     }
    }
    ```
 
 `recommended_rent` is the median. `comparable_count` is the number of comparables used for
 pricing, i.e. after both filtering and outlier removal.
+
+### Quality diagnostics
+
+Every valuation reports how good its evidence is (`services/quality.py`):
+
+- **`funnel`** counts the comparables left after each stage: `comparables_fetched` (what the
+  source returned), `comparables_after_distance_filter`,
+  `comparables_after_attribute_filter` (bedrooms, bathrooms and square footage together),
+  `comparables_after_outlier_filter`, and `comparables_used` (what was priced; always equal
+  to `comparable_count`). A comparable is counted as removed at the first stage it fails.
+  The funnel shows where listings were lost: for example, many fetched but few within a mile
+  means the provider's search radius is wider than the engine's distance filter.
+- **`confidence`** is based on `comparables_used`: **low** below 5 (3-4 with the default
+  minimum), **medium** 5-9, **high** 10 or more. It reflects how many comparables priced the
+  result, not how tightly their rents cluster.
+
+The same `funnel` is included in the `insufficient_data` 404 body (with no `confidence`),
+which is where it is most useful. Neither field is stored in the history table.
+
+Each valuation, successful or not, writes one log line from `valuation_engine`, for example:
+
+```
+valuation_funnel status=ok fetched=26 after_distance=24 after_attributes=18 after_outliers=16 used=16 minimum=3 confidence=high
+```
+
+The same values are attached to the log record as attributes (`record.funnel`,
+`record.confidence`, `record.valuation_status`, `record.minimum_required`) for JSON or other
+structured handlers. The address and other request details are never logged. Requests that
+fail before comparables are fetched (such as an unknown address) log no funnel.
 
 ### Comparable data
 
@@ -269,7 +306,8 @@ Valuation history is kept in a single SQLite file using Python's built-in `sqlit
 - **Schema.** Two tables. `provider_cache` (`cache_key`, `value` as JSON, `created_at`,
   `expires_at`; see the RentCast provider) holds paid-API responses. `valuation_requests`: `id`, `created_at` (ISO 8601 UTC text), the
   request (`address`, `beds`, `baths`, `sqft`, `latitude`, `longitude`) and the result
-  (`comparable_count`, `p25`, `median`, `p75`, `average`, `recommended_rent`).
+  (`comparable_count`, `p25`, `median`, `p75`, `average`, `recommended_rent`). The
+  `confidence` and `funnel` values are returned but not stored.
   `latitude` and `longitude` hold what the request supplied, so they are NULL when the
   default subject point was used.
 - **`ValuationRepository`** (`persistence/repositories.py`) is the only code that contains
@@ -358,7 +396,8 @@ least 1), `run_valuation()` raises `InsufficientDataError` and the API answers 4
   "status": "insufficient_data",
   "detail": "Only 2 comparable properties remained after filtering; at least 3 are required for a valuation.",
   "comparable_count": 2,
-  "minimum_required": 3
+  "minimum_required": 3,
+  "funnel": { "comparables_fetched": 12, "comparables_after_distance_filter": 4, "comparables_after_attribute_filter": 2, "comparables_after_outlier_filter": 2, "comparables_used": 2 }
 }
 ```
 
@@ -369,8 +408,7 @@ existing clients keep working; clients should read `status` to tell the cases ap
 `InsufficientDataError` subclasses `NoComparablesError`. `run_valuation(...,
 min_comparables=n)` overrides the default per call, which tests use.
 
-`ValuationResponse` also has an optional `confidence` field. The engine does not compute
-it yet, so it is `None` and is left out of responses (`response_model_exclude_none`).
+`ValuationResponse` also carries `confidence` and `funnel` (see Quality diagnostics).
 
 `GET /stats` returns `{"total_valuations": 123, "database_path": "...", "database_size_kb": 42}`.
 `GET /history` returns a list of the stored rows, each with `id`, `created_at`, the request
@@ -411,6 +449,8 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
 - `test_geocoding.py`: the interface, the mock geocoder (known, unknown, ambiguous and blank
   addresses, no network use), coordinates bypassing the geocoder, and `/valuation` with an
   address only, with coordinates only, and with an unknown address
+- `test_minimum_comparables.py`, `test_quality.py`: the minimum-comparables rule, confidence
+  levels, funnel counts, the funnel log line, and diagnostics in the insufficient-data body
 - `test_api.py`: endpoints through FastAPI's `TestClient`
 
 Because the data and the algorithm are deterministic, tests assert exact values.
@@ -437,7 +477,7 @@ Because the data and the algorithm are deterministic, tests assert exact values.
   returns 404.
 - The geocoder is chosen in code (`get_geocoder()`), not from configuration.
 - Distance is straight-line (great-circle), not driving distance.
-- No confidence score.
+- Confidence depends only on the number of comparables, not on how widely their rents vary.
 - No authentication or rate limiting. `/history` and `/stats` are open.
 - History is never pruned and the schema has no migration tooling; changing the table means
   handling existing database files by hand.

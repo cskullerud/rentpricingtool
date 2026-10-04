@@ -4,6 +4,7 @@ from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE, MIN_
 from app.persistence.repositories import PersistenceError, ValuationRepository
 from app.schemas import ValuationRequest
 from app.services import comparables as comps
+from app.services import quality
 from app.services import statistics as stats
 from app.services.data_sources.base import ComparableDataSource, SubjectProperty
 from app.services.geocoding.base import Geocoder
@@ -22,9 +23,10 @@ class InsufficientDataError(NoComparablesError):
     handle this. `comparable_count` can be 0.
     """
 
-    def __init__(self, comparable_count: int, minimum_required: int):
+    def __init__(self, comparable_count: int, minimum_required: int, funnel: quality.Funnel | None = None):
         self.comparable_count = comparable_count
         self.minimum_required = minimum_required
+        self.funnel = funnel
         if comparable_count == 0:
             message = "No comparable properties found for this property."
         else:
@@ -37,12 +39,15 @@ class InsufficientDataError(NoComparablesError):
 
     def to_response(self) -> dict:
         """The body returned to API clients instead of a valuation."""
-        return {
+        body = {
             "status": "insufficient_data",
             "detail": str(self),
             "comparable_count": self.comparable_count,
             "minimum_required": self.minimum_required,
         }
+        if self.funnel is not None:
+            body["funnel"] = self.funnel.as_dict()
+        return body
 
 
 def _locate_subject(subject: ValuationRequest, geocoder: Geocoder | None) -> tuple[float, float]:
@@ -52,6 +57,31 @@ def _locate_subject(subject: ValuationRequest, geocoder: Geocoder | None) -> tup
         found = geocoder.geocode(subject.address)
         return found["latitude"], found["longitude"]
     return DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
+
+
+def _log_funnel(funnel: quality.Funnel, confidence: str | None, status: str, minimum: int) -> None:
+    """One structured line per valuation: key=value text, plus the same fields as log-record
+    attributes (record.funnel, record.confidence, ...) for JSON or other structured handlers.
+    No address or other request detail is logged."""
+    fields = funnel.as_dict()
+    logger.info(
+        "valuation_funnel status=%s fetched=%d after_distance=%d after_attributes=%d "
+        "after_outliers=%d used=%d minimum=%d confidence=%s",
+        status,
+        fields["comparables_fetched"],
+        fields["comparables_after_distance_filter"],
+        fields["comparables_after_attribute_filter"],
+        fields["comparables_after_outlier_filter"],
+        fields["comparables_used"],
+        minimum,
+        confidence or "none",
+        extra={
+            "valuation_status": status,
+            "funnel": fields,
+            "minimum_required": minimum,
+            "confidence": confidence,
+        },
+    )
 
 
 def run_valuation(
@@ -94,14 +124,25 @@ def run_valuation(
         sqft=subject.sqft,
     )
     candidates = source.get_comparables(located)
+    fetched = len(candidates)
     candidates = comps.filter_by_distance(candidates, latitude, longitude)
+    after_distance = len(candidates)
     candidates = comps.filter_by_bedrooms(candidates, subject.beds)
     candidates = comps.filter_by_bathrooms(candidates, subject.baths)
     candidates = comps.filter_by_sqft(candidates, subject.sqft)
+    after_attributes = len(candidates)
 
     rents = stats.remove_outliers([c["rent"] for c in candidates])
+    funnel = quality.Funnel(
+        comparables_fetched=fetched,
+        comparables_after_distance_filter=after_distance,
+        comparables_after_attribute_filter=after_attributes,
+        comparables_after_outlier_filter=len(rents),
+        comparables_used=len(rents),
+    )
     if len(rents) < minimum:
-        raise InsufficientDataError(len(rents), minimum)
+        _log_funnel(funnel, confidence=None, status="insufficient_data", minimum=minimum)
+        raise InsufficientDataError(len(rents), minimum, funnel)
     percentiles = stats.calculate_percentiles(rents)
     median = round(percentiles["median"])
     result = {
@@ -111,7 +152,10 @@ def run_valuation(
         "p75": round(percentiles["p75"]),
         "average": round(stats.calculate_average(rents)),
         "recommended_rent": median,
+        "confidence": quality.confidence_for(funnel.comparables_used),
+        "funnel": funnel.as_dict(),
     }
+    _log_funnel(funnel, confidence=result["confidence"], status="ok", minimum=minimum)
     if repository is not None:
         try:
             repository.save_valuation_request(subject, result)

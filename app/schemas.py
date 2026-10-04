@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -18,6 +20,16 @@ class ValuationRequest(BaseModel):
         return self
 
 
+class FunnelStats(BaseModel):
+    """How many comparables survived each stage of the pipeline."""
+
+    comparables_fetched: int
+    comparables_after_distance_filter: int
+    comparables_after_attribute_filter: int
+    comparables_after_outlier_filter: int
+    comparables_used: int
+
+
 class ValuationResponse(BaseModel):
     comparable_count: int
     recommended_rent: int
@@ -25,8 +37,9 @@ class ValuationResponse(BaseModel):
     median: int
     p75: int
     average: int
-    # Not produced by the engine yet; omitted from responses until it is.
-    confidence: int | None = None
+    # low: fewer than 5 comparables used (3-4 normally), medium: 5-9, high: 10 or more.
+    confidence: Literal["low", "medium", "high"]
+    funnel: FunnelStats
 
 
 class StatsResponse(BaseModel):

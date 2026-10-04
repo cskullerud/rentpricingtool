@@ -51,10 +51,14 @@ copy `.env.example` to `.env` and add `--env-file .env` to the `uvicorn` command
 3. Drop rent outliers (below Q1 - 1.5 x IQR or above Q3 + 1.5 x IQR).
 4. Report p25, median, p75 and average of what remains. `recommended_rent` is the median,
    and `comparable_count` is the number of comparables used after outlier removal.
+5. Report `confidence` (`low` for fewer than 5 comparables, `medium` for 5-9, `high` for 10 or
+   more) and a `funnel` showing how many comparables survived each stage: fetched, within the
+   distance, matching bedrooms/bathrooms/sqft, after outlier removal, and used. Each valuation
+   also logs the funnel as one `valuation_funnel ...` line.
 
 If fewer than `MIN_COMPARABLES_REQUIRED` (default 3) comparables remain after steps 2 and 3,
 there is not enough data for a reliable number, so `POST /valuation` returns 404 with
-`{"status": "insufficient_data", "detail": "...", "comparable_count": 2, "minimum_required": 3}`
+`{"status": "insufficient_data", "detail": "...", "comparable_count": 2, "minimum_required": 3, "funnel": {...}}`
 instead of a valuation. The same 404 shape (with `comparable_count` 0) is used when nothing
 matches the subject.
 
@@ -67,7 +71,9 @@ curl http://127.0.0.1:8000/
 curl -X POST http://127.0.0.1:8000/valuation \
   -H "Content-Type: application/json" \
   -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}'
-# {"comparable_count":16,"recommended_rent":2512,"p25":2419,"median":2512,"p75":2606,"average":2505}
+# {"comparable_count":16,"recommended_rent":2512,"p25":2419,"median":2512,"p75":2606,"average":2505,
+#  "confidence":"high","funnel":{"comparables_fetched":26,"comparables_after_distance_filter":24,
+#  "comparables_after_attribute_filter":18,"comparables_after_outlier_filter":16,"comparables_used":16}}
 
 # Or give the subject's coordinates (both values, or neither); the address is then not geocoded:
 curl -X POST http://127.0.0.1:8000/valuation \

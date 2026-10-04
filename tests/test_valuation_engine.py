@@ -19,7 +19,9 @@ def test_has_comparables():
 
 def test_result_shape_and_ordering():
     result = run_valuation(SUBJECT, SOURCE)
-    assert set(result) == {"comparable_count", "p25", "median", "p75", "average", "recommended_rent"}
+    assert set(result) == {
+        "comparable_count", "p25", "median", "p75", "average", "recommended_rent", "confidence", "funnel",
+    }
     assert result["p25"] <= result["median"] <= result["p75"]
 
 

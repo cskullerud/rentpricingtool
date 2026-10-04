@@ -145,7 +145,12 @@ def test_api_returns_a_valuation_at_the_minimum():
     assert response.status_code == 200
     assert response.json() == {
         "comparable_count": 3, "recommended_rent": 2200, "p25": 2100, "median": 2200,
-        "p75": 2300, "average": 2200,
+        "p75": 2300, "average": 2200, "confidence": "low",
+        "funnel": {
+            "comparables_fetched": 3, "comparables_after_distance_filter": 3,
+            "comparables_after_attribute_filter": 3, "comparables_after_outlier_filter": 3,
+            "comparables_used": 3,
+        },
     }
 
 
