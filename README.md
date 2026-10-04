@@ -78,3 +78,7 @@ docs/           documentation
 scripts/        helper scripts
 data/           local data (contents are git-ignored)
 ```
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
