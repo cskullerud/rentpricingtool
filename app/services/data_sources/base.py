@@ -29,6 +29,10 @@ class SubjectProperty:
     sqft: int
 
 
+class DataSourceError(Exception):
+    """A data source could not supply comparables (network failure, bad credentials, ...)."""
+
+
 class ComparableDataSource(ABC):
     """Where comparable properties come from.
 
@@ -40,6 +44,7 @@ class ComparableDataSource(ABC):
     def get_comparables(self, subject: SubjectProperty | None = None) -> list[Comparable]:
         """Return the comparable properties available for pricing.
 
-        `subject` is optional: a source may use it to narrow its search, and must still work
-        without it. Filtering to the subject remains the engine's job (comparables.py).
+        `subject` is optional: a source may use it to narrow its search. A source that holds a
+        fixed dataset works without it; one that searches by location may refuse to (and says
+        so clearly). Filtering to the subject remains the engine's job (comparables.py).
         """

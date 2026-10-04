@@ -38,6 +38,7 @@ def test_blank_is_mock(monkeypatch, value):
     ],
 )
 def test_env_selects_provider(monkeypatch, value, provider_type, source_class):
+    monkeypatch.setenv("RENTCAST_API_KEY", "test-key")
     monkeypatch.setenv("DATA_PROVIDER", value)
     assert get_provider_type() is provider_type
     source = get_provider()
@@ -57,18 +58,24 @@ def test_unknown_provider_raises(monkeypatch):
         get_provider_type()
 
 
-@pytest.mark.parametrize("source_class", [RentCastComparableSource, CsvComparableSource])
-def test_placeholder_sources_are_not_implemented(source_class):
+def test_csv_placeholder_is_not_implemented():
     with pytest.raises(NotImplementedError):
-        source_class().get_comparables()
-    subject = SubjectProperty("1 A St", 32.7, -117.0, 3, 2, 1400)
+        CsvComparableSource().get_comparables()
     with pytest.raises(NotImplementedError):
-        source_class().get_comparables(subject)
+        CsvComparableSource().get_comparables(SubjectProperty("1 A St", 32.7, -117.0, 3, 2, 1400))
 
 
 def test_router_delegates_to_registry(monkeypatch):
     from app.routers.valuation import get_comparable_source
 
     assert isinstance(get_comparable_source(), MockComparableSource)
+    monkeypatch.setenv("RENTCAST_API_KEY", "test-key")
     monkeypatch.setenv("DATA_PROVIDER", "rentcast")
     assert isinstance(get_comparable_source(), RentCastComparableSource)
+
+
+def test_rentcast_without_a_key_is_a_configuration_error(monkeypatch):
+    monkeypatch.delenv("RENTCAST_API_KEY", raising=False)
+    monkeypatch.setenv("DATA_PROVIDER", "rentcast")
+    with pytest.raises(ProviderConfigurationError, match="RENTCAST_API_KEY"):
+        get_provider()

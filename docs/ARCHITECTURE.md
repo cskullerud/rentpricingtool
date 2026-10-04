@@ -67,7 +67,7 @@ app/
     data_sources/
       base.py             Comparable type and the ComparableDataSource interface
       mock_source.py      MockComparableSource and the 26-record mock dataset
-      rentcast_source.py  RentCastComparableSource placeholder (raises NotImplementedError)
+      rentcast_source.py  RentCastComparableSource: active rental listings from RentCast, cached
       csv_source.py       CsvComparableSource placeholder (raises NotImplementedError)
       provider_config.py  ProviderType and get_provider_type() (reads DATA_PROVIDER on each call)
       provider_registry.py  get_provider(): builds the source for the configured provider
@@ -208,6 +208,17 @@ MockGeocoder            (fixed table of 13 addresses, no network)
   a different message.
 - **Stored history.** The database keeps the latitude and longitude *as the request gave
   them*, so they are NULL for a geocoded request; the geocoded point is not stored.
+
+### RentCast provider
+
+`RentCastComparableSource` (`DATA_PROVIDER=rentcast`, `RENTCAST_API_KEY` required) makes one
+`GET /v1/listings/rental/long-term` call per uncached area, searching by the subject's
+coordinates and a radius. Listings missing any field a `Comparable` needs are skipped (and
+counted in a log warning). Results are cached in memory by rounded coordinates, because the
+router builds a new source per request and every call is billable. The HTTP call is an
+injectable `transport`, so tests make no network calls. Failures raise `DataSourceError`
+subclasses (`RentCastAuthError`, `RentCastRateLimitError`, `RentCastUnavailableError`,
+`RentCastResponseError`); the router does not map these to HTTP responses yet.
 
 ### Future providers
 
