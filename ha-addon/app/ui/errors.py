@@ -17,10 +17,7 @@ DEFAULT = ("Something went wrong", "Something went wrong. Please try again.")
 
 def is_ui_page_request(request: Request) -> bool:
     """True for requests to UI pages (not the static files, not the JSON API)."""
-    path = request.scope.get("path", "")
-    root = request.scope.get("root_path", "")
-    if root and path.startswith(root):
-        path = path[len(root):]
+    path = request.scope.get("path", "")  # the ingress prefix, if any, was already removed
     if path == STATIC_URL or path.startswith(STATIC_URL + "/"):
         return False
     return path == UI_PREFIX or path.startswith(UI_PREFIX + "/")

@@ -22,7 +22,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))  # autoescape is on fo
 
 def prefixed(request: Request, path: str) -> str:
     """`path` with the ingress prefix (if any) in front. All UI URLs go through this."""
-    return f"{request.scope.get('root_path', '')}{path}"
+    return f"{request.scope.get('ingress_prefix', '')}{path}"
 
 
 @pass_context

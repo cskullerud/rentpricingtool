@@ -1,5 +1,5 @@
 name: Rent Pricing
-version: "0.1.0"
+version: "0.1.1"
 slug: rentpricingtool
 description: Rent valuations from comparable listings, with a web UI in the sidebar
 url: https://github.com/cskullerud/rentpricingtool

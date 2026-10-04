@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Fix: the page's stylesheet and scripts (Bootstrap, app.css, app.js) returned 404 when opened
+  through Home Assistant ingress, so the page showed unstyled and the coordinates section and
+  double-submit guard did not work. Static files now load through ingress, and directly.
+
 ## 0.1.0
 
 - First release as a Home Assistant app.

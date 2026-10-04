@@ -302,3 +302,189 @@ def test_requirements_list_the_ui_dependencies():
 def test_template_and_form_libraries_import():
     import jinja2  # noqa: F401
     import python_multipart  # noqa: F401
+
+
+# --- ingress: static files and pages when Home Assistant has stripped the prefix ------------------------
+#
+# Regression tests for the 404s seen in the deployed app. Supervisor removes the ingress prefix
+# before forwarding, so the app sees /ui/static/... and the header X-Ingress-Path carries the prefix.
+
+ASSETS = [
+    ("/ui/static/css/app.css", "text/css"),
+    ("/ui/static/js/app.js", "javascript"),
+    ("/ui/static/vendor/bootstrap/bootstrap.min.css", "text/css"),
+    ("/ui/static/vendor/bootstrap/bootstrap.bundle.min.js", "javascript"),
+]
+
+
+def via_ingress(path, method="get", client=client, **kwargs):
+    """A request as the Supervisor forwards it: the prefix already removed, the header added."""
+    headers = {**kwargs.pop("headers", {}), "X-Ingress-Path": PREFIX}
+    return getattr(client, method)(path, headers=headers, **kwargs)
+
+
+def without_prefix(url):
+    assert url.startswith(PREFIX + "/"), url
+    return url[len(PREFIX):]
+
+
+@pytest.mark.parametrize("path, content_type", ASSETS)
+def test_static_files_load_through_ingress_with_the_prefix_stripped(path, content_type):
+    response = via_ingress(path)
+    assert response.status_code == 200, "static file not found when the ingress prefix was already stripped"
+    assert content_type in response.headers["content-type"]
+
+
+@pytest.mark.parametrize("path, content_type", ASSETS)
+def test_ingress_serves_the_same_bytes_as_direct_access(path, content_type):
+    assert via_ingress(path).content == client.get(path).content
+
+
+@pytest.mark.parametrize("path, content_type", ASSETS)
+def test_static_files_still_load_directly_without_the_header(path, content_type):
+    response = client.get(path)
+    assert response.status_code == 200 and content_type in response.headers["content-type"]
+
+
+@pytest.mark.parametrize("path, content_type", ASSETS)
+def test_static_files_load_when_the_prefix_is_left_in_the_path(path, content_type):
+    response = client.get(PREFIX + path, headers={"X-Ingress-Path": PREFIX})
+    assert response.status_code == 200 and content_type in response.headers["content-type"]
+
+
+def test_every_url_on_the_page_resolves_through_a_prefix_stripping_proxy():
+    """Browser -> proxy -> app: the page links to the prefixed URLs, the proxy strips the prefix."""
+    page = via_ingress("/ui/")
+    assert page.status_code == 200
+    urls = re.findall(r'(?:href|src)="([^"]+)"', page.text)
+    assert len(urls) >= 6
+    for url in urls:
+        response = via_ingress(without_prefix(url))
+        assert response.status_code == 200, f"{url} -> {response.status_code}"
+
+
+def test_every_url_on_the_history_page_resolves_through_a_prefix_stripping_proxy():
+    page = via_ingress("/ui/history")
+    for url in re.findall(r'(?:href|src)="([^"]+)"', page.text):
+        assert via_ingress(without_prefix(url)).status_code == 200, url
+
+
+def test_the_page_is_styled_through_ingress_not_just_served():
+    """The stylesheet the page points at is real Bootstrap, reachable at the prefixed URL."""
+    page = via_ingress("/ui/").text
+    css_url = re.search(r'href="([^"]*bootstrap\.min\.css)"', page).group(1)
+    assert css_url.startswith(PREFIX)
+    css = via_ingress(without_prefix(css_url))
+    assert css.status_code == 200 and "Bootstrap" in css.text[:300] and len(css.content) > 150_000
+
+
+def test_missing_static_files_are_still_404_through_ingress():
+    response = via_ingress("/ui/static/nope.css")
+    assert response.status_code == 404 and response.json() == {"detail": "Not Found"}
+
+
+@pytest.mark.parametrize("path", ["/ui/static/../config.py", "/ui/static/%2e%2e/config.py", "/ui/static/..%2fmain.py"])
+def test_static_path_traversal_is_still_blocked_through_ingress(path):
+    response = via_ingress(path)
+    assert response.status_code in (400, 404) and "APP_NAME" not in response.text
+
+
+def test_html_error_pages_still_work_through_ingress():
+    response = via_ingress("/ui/nope")
+    assert response.status_code == 404 and response.headers["content-type"].startswith("text/html")
+    assert f'href="{PREFIX}/ui/">Back to the valuation form' in response.text
+
+
+def test_the_json_api_is_unchanged_through_ingress():
+    assert via_ingress("/").json() == client.get("/").json()
+    assert via_ingress("/nope").json() == {"detail": "Not Found"}
+
+
+def test_a_form_submission_works_end_to_end_through_ingress():
+    """GET the form and POST it with the prefix stripped, carrying the cookie the way a browser at
+    the prefixed address would (the cookie's path is scoped to the prefix)."""
+    fresh = TestClient(app)
+    page = via_ingress("/ui/", client=fresh)
+    cookie = page.headers["set-cookie"]
+    assert f"Path={PREFIX}/ui" in cookie
+    cookie_pair = cookie.split(";")[0]
+    token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+    response = via_ingress(
+        "/ui/valuation", method="post", client=fresh, headers={"Cookie": cookie_pair},
+        data={"address": "123 Main St", "beds": "3", "baths": "2", "sqft": "1400", "csrf_token": token},
+    )
+    assert response.status_code == 200 and 'id="result-card"' in response.text
+    assert all(url.startswith(PREFIX) for url in re.findall(r'(?:href|src|action)="([^"]+)"', response.text))
+
+
+# --- the middleware's contract ------------------------------------------------------------------------
+
+def run_middleware(path, header=PREFIX, raw_path=None):
+    """Run IngressMiddleware once and return the scope the application receives."""
+    import asyncio
+
+    from app.ui.ingress import IngressMiddleware
+
+    seen = {}
+
+    async def downstream(scope, receive, send):
+        seen.update(scope)
+
+    scope = {
+        "type": "http", "path": path, "raw_path": (raw_path or path).encode(), "root_path": "",
+        "headers": [(b"x-ingress-path", header.encode())] if header is not None else [],
+    }
+    asyncio.run(IngressMiddleware(downstream)(scope, None, None))
+    return seen
+
+
+def test_the_prefix_is_kept_out_of_root_path():
+    """root_path is what Starlette mounts use to find their sub-path; a prefix the proxy already
+    removed must not be put there, or StaticFiles looks for the wrong file."""
+    scope = run_middleware("/ui/static/css/app.css")
+    assert scope["root_path"] == ""
+    assert scope["ingress_prefix"] == PREFIX
+
+
+def test_a_stripped_path_is_left_alone():
+    scope = run_middleware("/ui/static/css/app.css")
+    assert scope["path"] == "/ui/static/css/app.css" and scope["raw_path"] == b"/ui/static/css/app.css"
+
+
+def test_a_path_that_still_has_the_prefix_is_stripped_to_what_the_app_serves():
+    scope = run_middleware(f"{PREFIX}/ui/static/css/app.css")
+    assert scope["path"] == "/ui/static/css/app.css" and scope["raw_path"] == b"/ui/static/css/app.css"
+    assert scope["root_path"] == "" and scope["ingress_prefix"] == PREFIX
+
+
+def test_only_whole_path_segments_are_stripped():
+    lookalike = f"{PREFIX}EXTRA/ui/"
+    assert run_middleware(lookalike)["path"] == lookalike
+
+
+def test_the_bare_prefix_becomes_the_root_path_of_the_app():
+    assert run_middleware(PREFIX)["path"] == "/"
+
+
+@pytest.mark.parametrize("header", [None, "", "//evil.example", "http://x", "/a b", "/.."])
+def test_without_a_usable_header_nothing_changes(header):
+    scope = run_middleware(f"{PREFIX}/ui/", header=header)
+    assert scope["path"] == f"{PREFIX}/ui/" and scope["root_path"] == ""
+    assert "ingress_prefix" not in scope
+
+
+def test_query_strings_and_other_scope_values_are_untouched():
+    import asyncio
+
+    from app.ui.ingress import IngressMiddleware
+
+    seen = {}
+
+    async def downstream(scope, receive, send):
+        seen.update(scope)
+
+    scope = {"type": "http", "path": "/ui/", "query_string": b"a=1", "method": "GET", "client": ("1.2.3.4", 5),
+             "headers": [(b"x-ingress-path", PREFIX.encode())]}
+    asyncio.run(IngressMiddleware(downstream)(scope, None, None))
+    assert seen["query_string"] == b"a=1" and seen["method"] == "GET" and seen["client"] == ("1.2.3.4", 5)
+    assert "raw_path" not in seen  # not invented when the server did not provide one

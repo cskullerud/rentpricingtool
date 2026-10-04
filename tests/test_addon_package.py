@@ -359,12 +359,17 @@ def test_the_bundle_runs_on_its_own(tmp_path):
         assert main.__file__.replace("\\\\", "/").find("ha-addon/app/main.py") > 0, main.__file__
         c = TestClient(main.app)
         print(c.get("/").status_code, c.get("/ui/").status_code, c.get("/ui/static/css/app.css").status_code)
+        # As Home Assistant forwards it: the ingress prefix already removed, the header added.
+        h = {"X-Ingress-Path": "/api/hassio_ingress/AbC123xyz"}
+        print(*[c.get(p, headers=h).status_code for p in (
+            "/ui/", "/ui/static/css/app.css", "/ui/static/js/app.js",
+            "/ui/static/vendor/bootstrap/bootstrap.min.css", "/ui/static/vendor/bootstrap/bootstrap.bundle.min.js")])
     """
     env = {**os.environ, "DATABASE_PATH": str(tmp_path / "t.db"), "PYTHONDONTWRITEBYTECODE": "1"}
     env.pop("ALLOWED_PEERS", None)
     result = subprocess.run([sys.executable, "-c", textwrap.dedent(code)], cwd=ADDON, env=env, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.split()[-3:] == ["200", "200", "200"]
+    assert result.stdout.split()[-8:] == ["200"] * 8, result.stdout  # direct, then through ingress
     assert not any((ADDON / "app").rglob("__pycache__")), "running the bundle left cache files behind"
 
 

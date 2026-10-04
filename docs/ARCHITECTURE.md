@@ -194,7 +194,7 @@ app/
   routers/ui.py        HTML routes (hidden from OpenAPI): GET /ui, /ui/, POST /ui/valuation, /ui/history
   ui/
     templating.py      Jinja2Templates, the ui_url() URL helper, the data-source badge, render()
-    ingress.py         IngressMiddleware: X-Ingress-Path -> ASGI root_path
+    ingress.py         IngressMiddleware: X-Ingress-Path -> scope["ingress_prefix"] (not root_path)
     forms.py           ValuationForm: parsing, per-field messages, keeps what was typed
     csrf.py            cookie-bound CSRF tokens
     viewmodels.py      money(), confidence styles, funnel rows, the insufficient-data explanation
@@ -205,10 +205,16 @@ app/
 ```
 
 - **Ingress-safe URLs.** Home Assistant ingress serves the app under a prefix and reports it in
-  `X-Ingress-Path`. The middleware copies a *validated* value into `root_path` (single leading
-  `/`, only letters, digits and `_ . - /`, no `..`, at most 200 characters; anything else is
-  ignored), and templates build every link, form action and static URL with `{{ u('/ui/...') }}`.
-  Without the header the prefix is empty. The JSON API is not affected.
+  `X-Ingress-Path`. The middleware records a *validated* value (single leading `/`, only letters,
+  digits and `_ . - /`, no `..`, at most 200 characters; anything else is ignored) as
+  `scope["ingress_prefix"]`, and templates build every link, form action and static URL with
+  `{{ ui_url('/ui/...') }}`. Without the header the prefix is empty. The JSON API is not affected.
+  **The prefix is deliberately not put in the ASGI `root_path`.** Home Assistant strips the
+  prefix before forwarding (the app sees `/ui/...`), and Starlette's mounts assume `root_path` is
+  a prefix of the path, so the static files returned 404 through ingress (found in the deployed
+  app, fixed in 0.1.1). Instead the middleware makes the path the same however a proxy forwards
+  it: a prefix still present is removed, one already removed is left alone, so routing never sees
+  it. `test_ui_infrastructure.py` loads every URL on the page through a prefix-stripping proxy.
 - **The valuation form.** `POST /ui/valuation` reads the form (`forms.py`), builds the same
   `ValuationRequest` the API uses, and calls the same `run_valuation()` with the same
   dependencies (`get_comparable_source`, `get_geocoder`, `get_repository`), off the event loop.

@@ -276,3 +276,12 @@ def test_main_is_unrestricted_when_the_variable_is_unset():
         """
     )
     assert result.returncode == 0 and result.stdout.split()[-1] == "200"
+
+
+def test_static_files_load_through_the_peer_check_and_ingress_together(guarded_app):
+    """The deployed combination: the Supervisor peer, the ingress header, the prefix already removed."""
+    headers = {"X-Ingress-Path": "/api/hassio_ingress/AbC123xyz"}
+    supervisor = client_for(guarded_app, SUPERVISOR)
+    for path in ("/ui/static/css/app.css", "/ui/static/js/app.js", "/ui/static/vendor/bootstrap/bootstrap.min.css"):
+        assert supervisor.get(path, headers=headers).status_code == 200, path
+    assert client_for(guarded_app, "172.30.33.5").get("/ui/static/css/app.css", headers=headers).status_code == 403
