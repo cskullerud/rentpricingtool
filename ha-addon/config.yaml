@@ -1,0 +1,39 @@
+name: Rent Pricing
+version: "0.1.0"
+slug: rentpricingtool
+description: Rent valuations from comparable listings, with a web UI in the sidebar
+url: https://github.com/cskullerud/rentpricingtool
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: application
+boot: auto
+# Stop the app while a backup copies /data, so the SQLite file is never caught mid-write.
+backup: cold
+
+# Home Assistant ingress is the only way in: no ports are published and the host network is
+# not used. Home Assistant's login protects the page, and the sidebar entry is admin-only
+# because a valuation with live data can use a paid data-plan request.
+ingress: true
+ingress_port: 8099
+ingress_entry: ui/
+panel_icon: mdi:home-currency-usd
+panel_title: Rent Pricing
+panel_admin: true
+
+# Supervisor restarts the app if this stops answering. The URL is the app's JSON health route.
+watchdog: "http://[HOST]:[PORT:8099]/"
+
+options:
+  data_provider: mock
+  min_comparables_required: 3
+  log_level: info
+  allowed_peers: "172.30.32.2"
+schema:
+  data_provider: list(mock|rentcast)
+  rentcast_api_key: password?
+  min_comparables_required: int(1,50)
+  ui_secret_key: password?
+  log_level: list(debug|info|warning|error)
+  allowed_peers: str

@@ -1,0 +1,6 @@
+/* Small overrides on top of Bootstrap. Keep this file short. */
+.app-container { max-width: 960px; }
+body { padding-bottom: env(safe-area-inset-bottom); }
+@media (max-width: 575.98px) {
+  .navbar-brand { font-size: 1rem; margin-right: .5rem; }
+}

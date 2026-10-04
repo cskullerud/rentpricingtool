@@ -1,0 +1,66 @@
+{# form: ValuationForm (values, errors, show_coordinates). Shows what was typed, with one message per field. #}
+{% macro field_error(name) %}{% if form.errors.get(name) %}<div class="invalid-feedback d-block" id="{{ name }}-error">{{ form.errors[name] }}</div>{% endif %}{% endmacro %}
+{% macro invalid(name) %}{% if form.errors.get(name) %} is-invalid{% endif %}{% endmacro %}
+
+<div class="row g-3">
+  <div class="col-12">
+    <label for="address" class="form-label">Address</label>
+    <input type="text" class="form-control form-control-lg{{ invalid('address') }}" id="address" name="address"
+           value="{{ form.values.address }}" autocomplete="off" required maxlength="200"
+           placeholder="123 Main St, La Mesa, CA">
+    {{ field_error('address') }}
+  </div>
+
+  <div class="col-12 col-sm-4">
+    <label for="beds" class="form-label">Bedrooms</label>
+    <input type="number" class="form-control form-control-lg{{ invalid('beds') }}" id="beds" name="beds"
+           value="{{ form.values.beds }}" inputmode="numeric" min="0" step="1" required>
+    {{ field_error('beds') }}
+    <div class="form-text">0 = studio</div>
+  </div>
+  <div class="col-12 col-sm-4">
+    <label for="baths" class="form-label">Bathrooms</label>
+    <input type="number" class="form-control form-control-lg{{ invalid('baths') }}" id="baths" name="baths"
+           value="{{ form.values.baths }}" inputmode="decimal" min="0" step="0.5" required>
+    {{ field_error('baths') }}
+  </div>
+  <div class="col-12 col-sm-4">
+    <label for="sqft" class="form-label">Square feet</label>
+    <input type="number" class="form-control form-control-lg{{ invalid('sqft') }}" id="sqft" name="sqft"
+           value="{{ form.values.sqft }}" inputmode="numeric" min="1" step="1" required>
+    {{ field_error('sqft') }}
+  </div>
+
+  <div class="col-12">
+    <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#coordinates"
+            aria-expanded="{{ 'true' if form.show_coordinates else 'false' }}" aria-controls="coordinates">
+      Use exact coordinates (optional)
+    </button>
+    <div class="collapse{% if form.show_coordinates %} show{% endif %} mt-2" id="coordinates">
+      <div class="row g-3">
+        <div class="col-12 col-sm-6">
+          <label for="latitude" class="form-label">Latitude</label>
+          <input type="number" class="form-control form-control-lg{{ invalid('latitude') }}" id="latitude" name="latitude"
+                 value="{{ form.values.latitude }}" inputmode="decimal" min="-90" max="90" step="any">
+          {{ field_error('latitude') }}
+        </div>
+        <div class="col-12 col-sm-6">
+          <label for="longitude" class="form-label">Longitude</label>
+          <input type="number" class="form-control form-control-lg{{ invalid('longitude') }}" id="longitude" name="longitude"
+                 value="{{ form.values.longitude }}" inputmode="decimal" min="-180" max="180" step="any">
+          {{ field_error('longitude') }}
+        </div>
+        <div class="col-12 form-text">Give both or neither. Coordinates skip the address lookup.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <button type="submit" class="btn btn-primary btn-lg w-100" id="submit-button">Get valuation</button>
+    {% if badge.live %}
+    <div class="form-text mt-2" id="live-data-note">
+      Live data: a new area uses one request from your data plan. Results are cached for 24 hours.
+    </div>
+    {% endif %}
+  </div>
+</div>

@@ -1,0 +1,12 @@
+# Only what the image needs goes into the build context.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+*.db
+*.db-journal
+.env
+.env.*
+.git
+.gitignore
+*.md
+translations

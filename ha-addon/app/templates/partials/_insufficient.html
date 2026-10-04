@@ -1,0 +1,15 @@
+{# insufficient: {comparable_count, minimum_required, detail, funnel_rows, explanation}. No confidence badge. #}
+<section class="card border-warning shadow-sm mb-4" id="insufficient-data" aria-labelledby="insufficient-heading">
+  <div class="card-body">
+    <h2 class="h5" id="insufficient-heading">Not enough comparable properties</h2>
+    <p class="mb-2" id="insufficient-counts">
+      Found <strong>{{ insufficient.comparable_count }}</strong> after filtering;
+      at least <strong>{{ insufficient.minimum_required }}</strong> are needed for a reliable valuation.
+    </p>
+    {% if insufficient.explanation %}<p class="mb-3" id="insufficient-explanation">{{ insufficient.explanation }}</p>{% endif %}
+    {% if insufficient.funnel_rows %}
+    <h3 class="h6">How the comparables were narrowed down</h3>
+    {% with funnel_rows = insufficient.funnel_rows %}{% include "partials/_funnel.html" %}{% endwith %}
+    {% endif %}
+  </div>
+</section>

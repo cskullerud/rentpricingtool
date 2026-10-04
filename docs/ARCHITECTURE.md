@@ -250,6 +250,56 @@ app/
 - **Status.** The valuation form works. The history page is still a placeholder.
 - **Dependencies.** `jinja2` and `python-multipart` (for form posts, in the next step).
 
+## Home Assistant app packaging
+
+The service is packaged as a Home Assistant app so it can be used inside Home Assistant with no
+exposed port.
+
+```
+repository.yaml                 makes the GitHub repository an app repository
+scripts/sync_addon.sh           copies app/ to ha-addon/app/ (--check verifies, changes nothing)
+ha-addon/
+  config.yaml                   ingress, sidebar entry, options and schema
+  Dockerfile                    pinned base-python image, venv, pinned requirements
+  run.sh                        thin launcher (bashio shebang), execs entrypoint.py
+  entrypoint.py                 options.json -> environment, validation, then uvicorn
+  log_config.json               makes the app's own INFO logs visible in the Log tab
+  requirements.txt              exact pins of the runtime dependency tree (no test tools)
+  translations/en.yaml, DOCS.md, README.md, CHANGELOG.md, icon.png, logo.png, .dockerignore
+  app/                          generated copy of ../app (committed; checked by tests)
+```
+
+- **Delivery.** An app is built from its own folder, which cannot reach `../app`, so the
+  package contains a copy. `sync_addon.sh` keeps it in step, and `tests/test_addon_package.py`
+  fails on any difference. `build.yaml` is deprecated and not used: the Dockerfile names its
+  base image (`ghcr.io/home-assistant/base-python:3.12-alpine3.24-2026.08.0`, matching the
+  Python the tests run on).
+- **Ingress only.** `ingress: true`, `ingress_port: 8099`, `ingress_entry: ui/` (the sidebar
+  opens the UI; the JSON root `/` is untouched and serves the watchdog), `panel_admin: true`.
+  No `ports`, no host network, no host folder mapped, and none of the privilege or API flags.
+- **Supervisor-only peer check.** `app/security.py` (`PeerGuardMiddleware`) answers only
+  connections whose TCP peer address is in `ALLOWED_PEERS`; the app sets it to the Supervisor,
+  `172.30.32.2`. Other apps share the internal network and could otherwise skip ingress and its
+  login. It uses the socket peer, never `X-Forwarded-For`, so uvicorn runs with
+  `proxy_headers=False`. Missing, unparseable or other peers get `403 Forbidden`. Lists that are
+  empty, invalid, written with host bits set (which would widen them) or broader than /16 (/64
+  for IPv6) are rejected, and an invalid value stops the app at startup. When the variable is
+  unset (development) nothing is checked.
+- **Options.** `data_provider` (`mock` default, or `rentcast`), `rentcast_api_key` (password),
+  `min_comparables_required` (1-50, default 3), `ui_secret_key` (password, optional),
+  `log_level` and `allowed_peers`. `entrypoint.py` validates them (non-text values, unknown
+  providers, `rentcast` without a key and unsafe peer lists are refused with a message that
+  names the option, never its value), builds the environment and starts uvicorn.
+- **Secrets.** The API key travels only through the app's options and the process
+  environment. Nothing prints it. The form-security key is generated once into `/data/ui_secret`
+  (mode 600) so forms survive restarts, unless one is configured.
+- **Persistence.** `DATABASE_PATH=/data/rentpricingtool.db`: a fresh database, with the history
+  and the RentCast cache. There is no automatic migration of an earlier database; the optional
+  manual steps are in `ha-addon/DOCS.md`. `backup: cold` stops the app while `/data` is copied.
+- **Not built or run here.** The Docker image cannot be built inside the development container,
+  so the first real build happens when the app is installed. The tests cover the package files,
+  the options handling, the bundle and the peer check.
+
 ## Geographic modeling
 
 Distance is calculated, not stored.
@@ -518,6 +568,11 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
   address only, with coordinates only, and with an unknown address
 - `test_minimum_comparables.py`, `test_quality.py`: the minimum-comparables rule, confidence
   levels, funnel counts, the funnel log line, and diagnostics in the insufficient-data body
+- `test_peer_guard.py`: the Supervisor-only peer check (parsing, refusals, spoofed headers,
+  WebSockets, the real app behind it, and how `main.py` wires it)
+- `test_addon_package.py`: the Home Assistant app package (settings, ingress, no published
+  ports, pinned image and requirements, the bundle matching `app/`, `sync_addon.sh`, the
+  entrypoint's option handling and secrets, and the docs)
 - `test_ui_forms.py`, `test_ui_valuation.py`: form validation, CSRF, view models, the
   submit flow and every page state (result, insufficient data, field errors, provider errors),
   escaping, error pages, ingress and mobile layout assertions. They use mock sources and

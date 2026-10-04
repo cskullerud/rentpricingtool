@@ -24,6 +24,8 @@ computed from a **mock comparable-property dataset**; real data sources come lat
   were narrowed down, or an "insufficient data" explanation, with a MOCK/RENTCAST data-source
   badge. CSRF-protected and safe to serve through Home Assistant ingress. The history page is
   still a placeholder.
+- Packaged as a Home Assistant app (`ha-addon/`): opens from the sidebar through ingress, with no
+  published ports and connections accepted only from the Supervisor
 - Automated tests
 
 ### Roadmap
@@ -48,6 +50,19 @@ The API is then at http://127.0.0.1:8000, with interactive Swagger docs at http:
 
 Optional settings (`APP_NAME`, `VERSION`, `ENVIRONMENT`) are read from environment variables;
 copy `.env.example` to `.env` and add `--env-file .env` to the `uvicorn` command to use them.
+
+## Home Assistant app
+
+The service can run as a Home Assistant app, shown in the sidebar as **Rent Pricing**
+(administrators only) and reachable from the web app, the mobile app and remote access, with no
+published ports. Add `https://github.com/cskullerud/rentpricingtool` under **Settings > Apps >
+App store > Repositories**, then install **Rent Pricing**. It starts on built-in sample data (no
+cost); live RentCast data is a setting. See [`ha-addon/DOCS.md`](ha-addon/DOCS.md) for the
+installation steps, the first-run checklist, settings, security and troubleshooting.
+
+The app is built from the `ha-addon/` folder alone, so it contains a copy of `app/`. After
+changing anything under `app/`, run `scripts/sync_addon.sh` and commit the result;
+`scripts/sync_addon.sh --check` (and the test suite) fails if the copy is out of date.
 
 ## Web UI
 

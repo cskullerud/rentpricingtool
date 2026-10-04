@@ -5,6 +5,7 @@ uvicorn[standard]>=0.30,<1.0
 # tests
 pytest>=8.0
 httpx>=0.27
+pyyaml>=6.0
 
 # web UI
 jinja2>=3.1,<4.0

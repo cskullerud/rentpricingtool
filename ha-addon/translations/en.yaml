@@ -1,0 +1,32 @@
+configuration:
+  data_provider:
+    name: Data source
+    description: >-
+      Where comparable properties come from. "mock" uses built-in sample data (free, not real
+      listings). "rentcast" uses live RentCast listings and needs an API key; each new area
+      uses one request from your RentCast plan (results are cached for 24 hours).
+  rentcast_api_key:
+    name: RentCast API key
+    description: >-
+      Needed only when the data source is "rentcast". Stored by Home Assistant and shown
+      masked. Backups contain it, so encrypt your backups.
+  min_comparables_required:
+    name: Minimum comparables
+    description: >-
+      The fewest comparable properties a valuation may be based on. With fewer, the page says
+      there is not enough data instead of showing a number. Default 3.
+  ui_secret_key:
+    name: Form security key (optional)
+    description: >-
+      Signs the page's form tokens. Leave empty: a key is created once and kept, so forms
+      survive restarts and updates.
+  log_level:
+    name: Log level
+    description: >-
+      How much the app writes to its Log tab. "info" includes one summary line per valuation.
+  allowed_peers:
+    name: Allowed source addresses (advanced)
+    description: >-
+      Only connections from these addresses are answered. The default, 172.30.32.2, is the
+      Home Assistant Supervisor, which is where ingress traffic comes from. Change it only if
+      the Log tab shows ingress requests being refused from a different address.

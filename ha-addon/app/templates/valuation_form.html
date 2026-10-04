@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Valuation{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Rent valuation</h1>
+
+{% if alert is defined and alert %}{% include "partials/_alert.html" %}{% endif %}
+{% if result is defined and result %}{% include "partials/_result_card.html" %}{% endif %}
+{% if insufficient is defined and insufficient %}{% include "partials/_insufficient.html" %}{% endif %}
+
+{% if (result is defined and result) or (insufficient is defined and insufficient) %}
+<h2 class="h5">Run another valuation</h2>
+{% endif %}
+
+<form id="valuation-form" method="post" action="{{ ui_url(UI_PREFIX ~ '/valuation') }}" data-single-submit>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% include "partials/_form_fields.html" %}
+</form>
+{% endblock %}
