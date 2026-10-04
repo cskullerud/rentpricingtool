@@ -1,5 +1,6 @@
 import pytest
 
+from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
 from app.services.comparables import (
     filter_by_bathrooms,
     filter_by_bedrooms,
@@ -46,7 +47,7 @@ def test_empty_input_raises(fn):
 def test_remove_outliers_drops_900_and_8000():
     # The comparables that match a 3 bed / 2 bath / 1400 sqft subject, as the engine sees them.
     matches = MockComparableSource().get_comparables()
-    matches = filter_by_distance(matches)
+    matches = filter_by_distance(matches, DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE)
     matches = filter_by_bedrooms(matches, 3)
     matches = filter_by_bathrooms(matches, 2)
     matches = filter_by_sqft(matches, 1400)

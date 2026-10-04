@@ -5,14 +5,14 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 
 ## Project Status
 
-**Phase 2 - Valuation Engine (mock comparables) Complete**
+**Phase 4 - Geographic Modeling Complete**
 
 ### Current Features
 
 - FastAPI API
 - Swagger docs
-- Valuation engine: filters comparables (distance, bedrooms, bathrooms, sqft), removes
-  rent outliers (IQR), and reports percentiles and average
+- Valuation engine: filters comparables (distance from coordinates, bedrooms, bathrooms,
+  sqft), removes rent outliers (IQR), and reports percentiles and average
 - `POST /valuation` backed by the engine, using mock comparable data
 - Automated tests
 
@@ -60,7 +60,14 @@ curl -X POST http://127.0.0.1:8000/valuation \
   -H "Content-Type: application/json" \
   -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}'
 # {"comparable_count":16,"recommended_rent":2512,"p25":2419,"median":2512,"p75":2606,"average":2505}
+
+# Optionally give the subject's location (both values, or neither):
+curl -X POST http://127.0.0.1:8000/valuation \
+  -H "Content-Type: application/json" \
+  -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400, "latitude": 32.7678, "longitude": -117.0231}'
 ```
+
+If `latitude` and `longitude` are omitted, the subject is placed at a default point in La Mesa, CA.
 
 ## Test
 
@@ -72,7 +79,7 @@ pytest
 
 ```
 app/            FastAPI app: main.py, config.py, schemas.py, routers/valuation.py,
-                services/ (statistics, comparables, valuation_engine, data_sources/)
+                services/ (statistics, comparables, geo, valuation_engine, data_sources/)
 tests/          pytest tests
 docs/           documentation
 scripts/        helper scripts

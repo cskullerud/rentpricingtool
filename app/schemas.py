@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class ValuationRequest(BaseModel):
@@ -6,6 +6,16 @@ class ValuationRequest(BaseModel):
     beds: int
     baths: float
     sqft: int
+    # Optional location of the subject. Give both or neither; if omitted, a default mock
+    # coordinate is used (see app/config.py).
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+    @model_validator(mode="after")
+    def _coordinates_come_as_a_pair(self):
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        return self
 
 
 class ValuationResponse(BaseModel):

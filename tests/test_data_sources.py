@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.services.valuation_engine as engine_module
+from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
 from app.main import app
 from app.routers.valuation import get_comparable_source
 from app.schemas import ValuationRequest
@@ -19,7 +20,11 @@ class FakeSource(ComparableDataSource):
 
     def get_comparables(self):
         return [
-            {"address": f"{i} Test St", "rent": r, "distance_miles": 0.5, "beds": 3, "baths": 2, "sqft": 1400}
+            {
+                "address": f"{i} Test St", "rent": r,
+                "latitude": DEFAULT_SUBJECT_LATITUDE, "longitude": DEFAULT_SUBJECT_LONGITUDE,
+                "beds": 3, "baths": 2, "sqft": 1400,
+            }
             for i, r in enumerate(self.rents)
         ]
 
@@ -36,7 +41,7 @@ def test_mock_source_is_a_comparable_data_source():
 def test_mock_source_returns_the_26_comparables():
     comps = MockComparableSource().get_comparables()
     assert len(comps) == 26
-    assert set(comps[0]) == {"address", "rent", "distance_miles", "beds", "baths", "sqft"}
+    assert set(comps[0]) == {"address", "rent", "latitude", "longitude", "beds", "baths", "sqft"}
 
 
 def test_engine_uses_whatever_source_it_is_given():

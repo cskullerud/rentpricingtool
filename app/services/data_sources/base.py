@@ -5,7 +5,8 @@ from typing import TypedDict
 class Comparable(TypedDict):
     address: str
     rent: int
-    distance_miles: float  # measured from the subject property
+    latitude: float  # decimal degrees
+    longitude: float  # decimal degrees
     beds: int
     baths: float
     sqft: int

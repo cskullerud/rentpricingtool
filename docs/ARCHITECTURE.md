@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Phase 3 - valuation engine behind a data-source abstraction, running on mock comparable data.** This document describes
+Status: **Phase 4 - coordinate-based distance, valuation engine behind a data-source abstraction, running on mock comparable data.** This document describes
 what exists today; planned work is listed at the end.
 
 ## Overview
@@ -38,13 +38,15 @@ JSON response
 ```
 app/
   main.py                 App creation and the GET / health endpoint
-  config.py               APP_NAME, VERSION, ENVIRONMENT (read from environment variables)
+  config.py               APP_NAME, VERSION, ENVIRONMENT (from environment variables) and
+                          the default subject coordinate
   schemas.py              Pydantic request/response models
   routers/
     valuation.py          POST /valuation
   services/
     statistics.py         Percentiles, average, standard deviation, IQR outlier removal
     comparables.py        The four filters (distance, bedrooms, bathrooms, sqft)
+    geo.py                Great-circle distance: haversine_distance(), miles_between_points()
     valuation_engine.py   Orchestrates the valuation workflow
     data_sources/
       base.py             Comparable type and the ComparableDataSource interface
@@ -64,10 +66,11 @@ data/                     Local data, contents git-ignored (empty)
 | HTTP | `routers/valuation.py` | Parse and validate input, choose the data source, translate errors to status codes | schemas, engine, data sources |
 | Contract | `schemas.py` | Shape of requests and responses | nothing |
 | Domain | `services/valuation_engine.py` | The valuation workflow | schemas (request type), `ComparableDataSource` (interface only), comparables, statistics |
-| Domain | `services/comparables.py` | Filtering comparables | `Comparable` type |
+| Domain | `services/comparables.py` | Filtering comparables | `Comparable` type, `geo` |
+| Domain | `services/geo.py` | Distance between coordinates | nothing |
 | Data | `services/data_sources/` | Supplying comparable properties | nothing outside the package |
 | Domain | `services/statistics.py` | Numeric helpers | nothing |
-| Config | `config.py` | Settings from the environment | nothing |
+| Config | `config.py` | Settings from the environment, default subject coordinate | nothing |
 
 The routers depend on services, and services never import from routers. The engine depends
 on the `ComparableDataSource` interface, never on a concrete provider; only the router
@@ -83,7 +86,7 @@ their own.
 
    | Filter | Rule | Default |
    |---|---|---|
-   | Distance | `distance_miles <= max` | 1.0 mile |
+   | Distance | great-circle miles from the subject's coordinates `<= max`, calculated per comparable | 1.0 mile |
    | Bedrooms | within +/- tolerance of the subject | 1 bedroom |
    | Bathrooms | within +/- tolerance of the subject | 1 bathroom |
    | Square feet | within +/- a fraction of the subject's sqft | 20% (inclusive) |
@@ -111,11 +114,34 @@ pricing, i.e. after both filtering and outlier removal.
 
 ### Comparable data
 
-Each comparable has `address`, `rent`, `distance_miles`, `beds`, `baths` and `sqft`
-(the `Comparable` type in `data_sources/base.py`). The mock dataset has 26 of them. `distance_miles` is measured from the subject, so the data is not tied
-to any particular address. The set deliberately contains two rent outliers (900 and 8000)
+Each comparable has `address`, `rent`, `latitude`, `longitude`, `beds`, `baths` and `sqft`
+(the `Comparable` type in `data_sources/base.py`). The mock dataset has 26 of them, with
+coordinates clustered around La Mesa / San Diego, CA. Street names are fictional. Distance
+is not stored: it is calculated from the coordinates when filtering. The set deliberately contains two rent outliers (900 and 8000)
 that pass the filters, plus properties the filters should exclude, so every stage of the
 pipeline is exercised.
+
+## Geographic modeling
+
+Distance is calculated, not stored.
+
+- `services/geo.py` has two functions. `haversine_distance(lat1, lon1, lat2, lon2)` returns
+  the great-circle distance in kilometers, and `miles_between_points(...)` returns it in
+  miles. Both take decimal degrees and assume a spherical Earth (mean radius 6371.0088 km),
+  which is accurate to about 0.5%.
+- `filter_by_distance(comparables, latitude, longitude, max_miles=1.0)` measures from the
+  given point to each comparable's coordinates and keeps those within `max_miles`
+  (inclusive).
+- **The subject's location.** `ValuationRequest` has optional `latitude` and `longitude`.
+  They must be given together (one alone is a 422), and are range-checked (+/-90 and
+  +/-180). If both are omitted, the engine uses the default mock subject coordinate in
+  `config.py`: `DEFAULT_SUBJECT_LATITUDE` and `DEFAULT_SUBJECT_LONGITUDE` (La Mesa, CA).
+  This is a placeholder until geocoding can turn `address` into coordinates.
+- Distance is straight-line, not driving distance.
+
+The mock data was generated so that each comparable sits at the same distance from the
+default subject that the earlier hand-entered `distance_miles` value described. Valuations
+for a request without coordinates are therefore unchanged from Phase 3.
 
 ## Current Data Flow
 
@@ -153,7 +179,7 @@ Two stub modules mark where the next providers go. They contain TODO notes only.
 
 | Provider | Stub | Notes |
 |---|---|---|
-| RentCast | `data_sources/future_rentcast.py` | Fetch listings from the RentCast API and map them to `Comparable`. Needs an API key from the environment, and geocoding to compute `distance_miles`. |
+| RentCast | `data_sources/future_rentcast.py` | Fetch listings from the RentCast API and map them to `Comparable`. Needs an API key from the environment. Listings carry coordinates, so they map straight to `latitude` and `longitude`. |
 | CSV | `data_sources/future_csv.py` | Load comparables from a CSV file (for example under `data/`), validating each row. |
 | Other | | Anything that can produce `Comparable` records: a database, another listings API, or a combination of providers. |
 
@@ -178,7 +204,8 @@ it yet, so it is `None` and is left out of responses (`response_model_exclude_no
 
 ## Configuration
 
-`config.py` reads three settings from environment variables, each with a default:
+`config.py` reads three settings from environment variables, each with a default (it also
+holds the default subject coordinate, a plain constant):
 
 | Variable | Default |
 |---|---|
@@ -193,7 +220,10 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
 `pytest` runs the whole suite with no network access:
 
 - `test_statistics.py`: percentiles, average, standard deviation, outlier removal
-- `test_comparables.py`: mock dataset sanity and each filter, including boundaries
+- `test_geo.py`: haversine and miles, with a zero-distance case, known city-pair distances,
+  symmetry and edge cases
+- `test_comparables.py`: mock dataset sanity and each filter, including boundaries and
+  coordinate-based distance filtering
 - `test_data_sources.py`: the interface, the mock source, and injecting a fake source into
   the engine and the API
 - `test_valuation_engine.py`: result shape, `recommended_rent == median`, outlier handling,
@@ -218,8 +248,9 @@ Because the data and the algorithm are deterministic, tests assert exact values.
 
 - The only data source is static mock data, so valuations are illustrative only.
 - The data source is chosen in code (`get_comparable_source()`), not from configuration.
-- Distance is a precomputed field; nothing geocodes the subject's address, and `address`
-  is currently accepted but not used in pricing.
+- Nothing geocodes the subject's address: `address` is accepted but not used in pricing. A
+  subject without coordinates is placed at a fixed default point (La Mesa).
+- Distance is straight-line (great-circle), not driving distance.
 - No confidence score.
 - No persistence, authentication or rate limiting.
 - No logging or metrics.
@@ -227,5 +258,5 @@ Because the data and the algorithm are deterministic, tests assert exact values.
 ## Planned (from the README roadmap)
 
 - RentCast and CSV providers (stubbed in `data_sources/`) to replace the mock comparables
-- Geocoding, so distance is computed from the subject's address
+- Geocoding, so the subject's coordinates come from its address instead of the default
 - Persistence layer

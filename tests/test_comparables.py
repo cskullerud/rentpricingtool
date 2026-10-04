@@ -1,3 +1,4 @@
+from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
 from app.services.comparables import (
     filter_by_bathrooms,
     filter_by_bedrooms,
@@ -5,10 +6,14 @@ from app.services.comparables import (
     filter_by_sqft,
 )
 from app.services.data_sources.mock_source import MOCK_COMPARABLES, MockComparableSource
+from app.services.geo import miles_between_points
+
+LAT, LON = DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
+MILES_PER_DEGREE_LAT = 69.0934  # one degree of latitude, in miles
 
 
 def make(**overrides):
-    base = {"address": "x", "rent": 2500, "distance_miles": 0.5, "beds": 3, "baths": 2, "sqft": 1400}
+    base = {"address": "x", "rent": 2500, "latitude": LAT, "longitude": LON, "beds": 3, "baths": 2, "sqft": 1400}
     return {**base, **overrides}
 
 
@@ -25,9 +30,48 @@ def test_get_comparables_returns_independent_copy():
     assert source.get_comparables()[0]["rent"] != -1
 
 
-def test_filter_by_distance():
-    comps = [make(distance_miles=0.5), make(distance_miles=1.0), make(distance_miles=1.1)]
-    assert [c["distance_miles"] for c in filter_by_distance(comps, max_miles=1.0)] == [0.5, 1.0]
+def north_of_subject(miles):
+    """A comparable `miles` due north of the subject (distance along a meridian is exact)."""
+    return make(latitude=LAT + miles / MILES_PER_DEGREE_LAT)
+
+
+def test_filter_by_distance_is_calculated_from_coordinates():
+    comps = [north_of_subject(m) for m in (0.0, 0.5, 0.99, 1.01, 3.0)]
+    kept = filter_by_distance(comps, LAT, LON, max_miles=1.0)
+    distances = [miles_between_points(LAT, LON, c["latitude"], c["longitude"]) for c in kept]
+    assert len(kept) == 3
+    assert all(d <= 1.0 for d in distances)
+
+
+def test_filter_by_distance_moves_with_the_subject():
+    comp = north_of_subject(0.5)
+    assert filter_by_distance([comp], LAT, LON, max_miles=1.0) == [comp]
+    far_subject_lat = LAT + 5 / MILES_PER_DEGREE_LAT  # subject now ~4.5 miles from the comp
+    assert filter_by_distance([comp], far_subject_lat, LON, max_miles=1.0) == []
+
+
+def test_filter_by_distance_is_inclusive_at_the_limit():
+    comp = north_of_subject(0.8)
+    exact = miles_between_points(LAT, LON, comp["latitude"], comp["longitude"])
+    assert filter_by_distance([comp], LAT, LON, max_miles=exact) == [comp]
+    assert filter_by_distance([comp], LAT, LON, max_miles=exact - 0.001) == []
+
+
+def test_filter_by_distance_default_radius_is_one_mile():
+    comps = [north_of_subject(0.9), north_of_subject(1.1)]
+    assert len(filter_by_distance(comps, LAT, LON)) == 1
+
+
+def test_dataset_is_clustered_around_la_mesa_san_diego():
+    for c in MOCK_COMPARABLES:
+        assert 32.6 <= c["latitude"] <= 32.9, c["address"]
+        assert -117.2 <= c["longitude"] <= -116.9, c["address"]
+
+
+def test_dataset_has_24_close_and_2_far_comparables():
+    distances = [miles_between_points(LAT, LON, c["latitude"], c["longitude"]) for c in MOCK_COMPARABLES]
+    assert sum(d <= 1.0 for d in distances) == 24
+    assert sorted(round(d, 1) for d in distances)[-2:] == [2.5, 3.2]
 
 
 def test_filter_by_bedrooms_allows_plus_minus_one():

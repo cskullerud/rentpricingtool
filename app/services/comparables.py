@@ -1,5 +1,6 @@
 """Filters that narrow a list of comparable properties to those similar to a subject."""
 from app.services.data_sources.base import Comparable
+from app.services.geo import miles_between_points
 
 DEFAULT_MAX_DISTANCE_MILES = 1.0
 DEFAULT_BEDROOM_TOLERANCE = 1
@@ -8,9 +9,20 @@ DEFAULT_SQFT_TOLERANCE = 0.20  # +/- 20%
 
 
 def filter_by_distance(
-    comparables: list[Comparable], max_miles: float = DEFAULT_MAX_DISTANCE_MILES
+    comparables: list[Comparable],
+    latitude: float,
+    longitude: float,
+    max_miles: float = DEFAULT_MAX_DISTANCE_MILES,
 ) -> list[Comparable]:
-    return [c for c in comparables if c["distance_miles"] <= max_miles]
+    """Keep comparables within `max_miles` (inclusive) of the given point.
+
+    Distance is the great-circle distance, calculated from each comparable's coordinates.
+    """
+    return [
+        c
+        for c in comparables
+        if miles_between_points(latitude, longitude, c["latitude"], c["longitude"]) <= max_miles
+    ]
 
 
 def filter_by_bedrooms(
