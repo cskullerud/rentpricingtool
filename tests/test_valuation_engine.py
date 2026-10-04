@@ -43,3 +43,41 @@ def test_no_comparables_raises():
     huge = ValuationRequest(address="1 Castle Rd", beds=10, baths=8, sqft=9000)
     with pytest.raises(NoComparablesError):
         run_valuation(huge, SOURCE)
+
+
+# --- persistence ---------------------------------------------------------------------
+
+def test_valuation_is_saved_when_a_repository_is_given(repository):
+    result = run_valuation(SUBJECT, SOURCE, repository)
+    assert repository.count_valuations() == 1
+    (row,) = repository.get_recent_valuations()
+    assert row["address"] == "123 Main St"
+    assert row["median"] == result["median"]
+    assert row["recommended_rent"] == result["recommended_rent"]
+
+
+def test_nothing_is_saved_without_a_repository(repository):
+    run_valuation(SUBJECT, SOURCE)
+    assert repository.count_valuations() == 0
+
+
+def test_result_is_the_same_with_or_without_a_repository(repository):
+    assert run_valuation(SUBJECT, SOURCE, repository) == run_valuation(SUBJECT, SOURCE)
+
+
+def test_failed_valuations_are_not_saved(repository):
+    huge = ValuationRequest(address="1 Castle Rd", beds=10, baths=8, sqft=9000)
+    with pytest.raises(NoComparablesError):
+        run_valuation(huge, SOURCE, repository)
+    assert repository.count_valuations() == 0
+
+
+def test_a_database_failure_does_not_break_the_valuation():
+    from app.persistence import PersistenceError
+
+    class BrokenRepository:
+        def save_valuation_request(self, subject, result):
+            raise PersistenceError("disk full")
+
+    result = run_valuation(SUBJECT, SOURCE, BrokenRepository())
+    assert result == run_valuation(SUBJECT, SOURCE)

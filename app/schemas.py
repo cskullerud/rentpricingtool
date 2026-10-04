@@ -27,3 +27,26 @@ class ValuationResponse(BaseModel):
     average: int
     # Not produced by the engine yet; omitted from responses until it is.
     confidence: int | None = None
+
+
+class StatsResponse(BaseModel):
+    total_valuations: int
+    database_path: str
+    database_size_kb: int
+
+
+class ValuationHistoryItem(BaseModel):
+    id: int
+    created_at: str
+    address: str | None
+    beds: int | None
+    baths: float | None
+    sqft: int | None
+    latitude: float | None
+    longitude: float | None
+    comparable_count: int | None
+    p25: float | None
+    median: float | None
+    p75: float | None
+    average: float | None
+    recommended_rent: float | None

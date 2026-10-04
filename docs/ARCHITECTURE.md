@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Phase 4 - coordinate-based distance, valuation engine behind a data-source abstraction, running on mock comparable data.** This document describes
+Status: **Phase 5 - SQLite persistence of valuations, on top of coordinate-based distance and a data-source abstraction, running on mock comparable data.** This document describes
 what exists today; planned work is listed at the end.
 
 ## Overview
@@ -9,9 +9,10 @@ Rent Pricing Tool is a small FastAPI service. A client posts a subject property
 (address, beds, baths, sqft) and gets back a rent valuation: a recommended rent, the
 25th/50th/75th percentiles, and the average of the comparable properties it was based on.
 
-Everything is in-process and deterministic. There is no database, no network call, and no
-external service. The comparable properties come from a `ComparableDataSource`; the only
-implementation today is a static mock dataset.
+Valuations are in-process and deterministic: there is no network call and no external
+service. The comparable properties come from a `ComparableDataSource`; the only
+implementation today is a static mock dataset. Each successful valuation is also recorded
+in a local SQLite file, which `GET /stats` and `GET /history` read back.
 
 ## Request flow
 
@@ -19,18 +20,21 @@ implementation today is a static mock dataset.
 Client
   |  POST /valuation  {address, beds, baths, sqft}
   v
-app/main.py                    FastAPI app, mounts the router
+app/main.py                    FastAPI app, mounts the routers, creates the database at startup
   v
-app/routers/valuation.py       validates the body (ValuationRequest), picks the data source,
-  |                            calls the engine, maps the result to ValuationResponse and
-  |                            errors to HTTP
+app/routers/valuation.py       validates the body (ValuationRequest), picks the data source
+  |                            and the repository, calls the engine, maps the result to
+  |                            ValuationResponse and errors to HTTP
   v
-app/services/valuation_engine.py   run_valuation(subject, source)
+app/services/valuation_engine.py   run_valuation(subject, source, repository)
   |-- source.get_comparables()   ComparableDataSource (injected by the router)
   |-- comparables.py             filter to similar properties
-  '-- statistics.py              remove outliers, compute percentiles and average
+  |-- statistics.py              remove outliers, compute percentiles and average
+  '-- repository.save_valuation_request()   record the result (best effort)
   v
 JSON response
+
+GET /stats, GET /history  ->  routers/stats.py, routers/history.py  ->  ValuationRepository
 ```
 
 ## Layout
@@ -38,11 +42,16 @@ JSON response
 ```
 app/
   main.py                 App creation and the GET / health endpoint
-  config.py               APP_NAME, VERSION, ENVIRONMENT (from environment variables) and
-                          the default subject coordinate
+  config.py               APP_NAME, VERSION, ENVIRONMENT, DATABASE_PATH (from environment
+                          variables) and the default subject coordinate
   schemas.py              Pydantic request/response models
   routers/
     valuation.py          POST /valuation
+    stats.py              GET /stats
+    history.py            GET /history
+  persistence/
+    database.py           DatabaseManager (SQLite connections and schema), PersistenceError
+    repositories.py       ValuationRepository: all SQL lives here
   services/
     statistics.py         Percentiles, average, standard deviation, IQR outlier removal
     comparables.py        The four filters (distance, bedrooms, bathrooms, sqft)
@@ -56,16 +65,18 @@ app/
 tests/                    pytest suite (API, services)
 docs/                     Documentation
 scripts/                  Helper scripts (empty)
-data/                     Local data, contents git-ignored (empty)
+data/                     Local data, contents git-ignored (holds rentpricingtool.db once
+                          the app has run)
 ```
 
 ## Layers and responsibilities
 
 | Layer | Module | Responsibility | Knows about |
 |---|---|---|---|
-| HTTP | `routers/valuation.py` | Parse and validate input, choose the data source, translate errors to status codes | schemas, engine, data sources |
+| HTTP | `routers/` | Parse and validate input, choose the data source and repository, translate errors to status codes | schemas, engine, data sources, persistence |
 | Contract | `schemas.py` | Shape of requests and responses | nothing |
-| Domain | `services/valuation_engine.py` | The valuation workflow | schemas (request type), `ComparableDataSource` (interface only), comparables, statistics |
+| Domain | `services/valuation_engine.py` | The valuation workflow | schemas (request type), `ComparableDataSource` (interface only), comparables, statistics, `ValuationRepository` (to save results) |
+| Persistence | `persistence/` | Storing and reading valuation history in SQLite | schemas, config |
 | Domain | `services/comparables.py` | Filtering comparables | `Comparable` type, `geo` |
 | Domain | `services/geo.py` | Distance between coordinates | nothing |
 | Data | `services/data_sources/` | Supplying comparable properties | nothing outside the package |
@@ -143,6 +154,38 @@ The mock data was generated so that each comparable sits at the same distance fr
 default subject that the earlier hand-entered `distance_miles` value described. Valuations
 for a request without coordinates are therefore unchanged from Phase 3.
 
+## Persistence
+
+Valuation history is kept in a single SQLite file using Python's built-in `sqlite3`
+(no ORM, no migrations tool).
+
+- **Location.** `data/rentpricingtool.db` in the project, or the path in the
+  `DATABASE_PATH` environment variable. The file, its folder and the schema are created
+  automatically: at application startup, and again on first use if needed. The `data/`
+  folder's contents are git-ignored.
+- **`DatabaseManager`** (`persistence/database.py`) opens connections and creates the schema
+  with `CREATE TABLE IF NOT EXISTS`. Each call to `connect()` returns a new connection,
+  because sqlite3 connections must not be shared between threads and FastAPI runs sync
+  endpoints in a thread pool. `connection()` is a context manager that commits on success,
+  rolls back on error, and always closes.
+- **Schema.** One table, `valuation_requests`: `id`, `created_at` (ISO 8601 UTC text), the
+  request (`address`, `beds`, `baths`, `sqft`, `latitude`, `longitude`) and the result
+  (`comparable_count`, `p25`, `median`, `p75`, `average`, `recommended_rent`).
+  `latitude` and `longitude` hold what the request supplied, so they are NULL when the
+  default subject point was used.
+- **`ValuationRepository`** (`persistence/repositories.py`) is the only code that contains
+  SQL, always with bound parameters:
+  `save_valuation_request()`, `get_recent_valuations(limit=25)` (newest first) and
+  `count_valuations()`, plus `database_path` and `database_size_bytes()` for `/stats`.
+  Database errors surface as `PersistenceError`.
+- **When results are saved.** `run_valuation()` saves each *successful* valuation when it is
+  given a repository; the router injects one. Valuations that find no comparables are not
+  saved. Saving is best effort: if the database is unavailable the error is logged and the
+  valuation is still returned, so a database problem never breaks pricing. `/stats` and
+  `/history` answer 503 in that case.
+- **Tests** never touch the real database: `tests/conftest.py` overrides the repository
+  dependency with a temporary one for every test.
+
 ## Current Data Flow
 
 ```
@@ -189,6 +232,8 @@ Two stub modules mark where the next providers go. They contain TODO notes only.
 |---|---|---|
 | GET | `/` | Health check: `{"app": "Rent Pricing Tool", "status": "online"}` |
 | POST | `/valuation` | Valuation for a subject property |
+| GET | `/stats` | Valuation count and database details |
+| GET | `/history` | The latest 25 valuations, newest first |
 | GET | `/docs` | Swagger UI (generated by FastAPI) |
 
 `POST /valuation` responses:
@@ -202,9 +247,15 @@ Two stub modules mark where the next providers go. They contain TODO notes only.
 `ValuationResponse` also has an optional `confidence` field. The engine does not compute
 it yet, so it is `None` and is left out of responses (`response_model_exclude_none`).
 
+`GET /stats` returns `{"total_valuations": 123, "database_path": "...", "database_size_kb": 42}`.
+`GET /history` returns a list of the stored rows, each with `id`, `created_at`, the request
+fields, and the result fields. Both answer 503 if the database cannot be read. There is no
+authentication, so these endpoints expose stored addresses and the server's file path to
+anyone who can reach the service.
+
 ## Configuration
 
-`config.py` reads three settings from environment variables, each with a default (it also
+`config.py` reads four settings from environment variables, each with a default (it also
 holds the default subject coordinate, a plain constant):
 
 | Variable | Default |
@@ -212,6 +263,7 @@ holds the default subject coordinate, a plain constant):
 | `APP_NAME` | `Rent Pricing Tool` |
 | `VERSION` | `0.1.0` |
 | `ENVIRONMENT` | `development` |
+| `DATABASE_PATH` | `data/rentpricingtool.db` in the project |
 
 The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .env`.
 
@@ -227,7 +279,10 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
 - `test_data_sources.py`: the interface, the mock source, and injecting a fake source into
   the engine and the API
 - `test_valuation_engine.py`: result shape, `recommended_rent == median`, outlier handling,
-  determinism, the no-comparables error
+  determinism, the no-comparables error, and saving to a repository
+- `test_database.py`, `test_repositories.py`: schema, automatic creation, transactions,
+  saving and reading rows, SQL-injection safety, error handling
+- `test_persistence_api.py`: `/stats` and `/history`, saving through the API, the 503 paths
 - `test_api.py`: endpoints through FastAPI's `TestClient`
 
 Because the data and the algorithm are deterministic, tests assert exact values.
@@ -252,11 +307,13 @@ Because the data and the algorithm are deterministic, tests assert exact values.
   subject without coordinates is placed at a fixed default point (La Mesa).
 - Distance is straight-line (great-circle), not driving distance.
 - No confidence score.
-- No persistence, authentication or rate limiting.
+- No authentication or rate limiting. `/history` and `/stats` are open.
+- History is never pruned and the schema has no migration tooling; changing the table means
+  handling existing database files by hand.
+- One SQLite file suits a single-machine deployment, not several instances sharing data.
 - No logging or metrics.
 
 ## Planned (from the README roadmap)
 
 - RentCast and CSV providers (stubbed in `data_sources/`) to replace the mock comparables
 - Geocoding, so the subject's coordinates come from its address instead of the default
-- Persistence layer

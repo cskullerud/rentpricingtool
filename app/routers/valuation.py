@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.persistence.repositories import ValuationRepository, get_repository
 from app.schemas import ValuationRequest, ValuationResponse
 from app.services.data_sources import ComparableDataSource, MockComparableSource
 from app.services.valuation_engine import NoComparablesError, run_valuation
@@ -16,9 +17,10 @@ def get_comparable_source() -> ComparableDataSource:
 def create_valuation(
     request: ValuationRequest,
     source: ComparableDataSource = Depends(get_comparable_source),
+    repository: ValuationRepository = Depends(get_repository),
 ) -> ValuationResponse:
     try:
-        result = run_valuation(request, source)
+        result = run_valuation(request, source, repository)
     except NoComparablesError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ValuationResponse(**result)

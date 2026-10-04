@@ -67,6 +67,6 @@ def test_api_uses_the_injected_source():
             "/valuation", json={"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}
         )
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_comparable_source, None)
     assert response.status_code == 200
     assert response.json()["median"] == 2300

@@ -5,7 +5,7 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 
 ## Project Status
 
-**Phase 4 - Geographic Modeling Complete**
+**Phase 5 - SQLite Persistence Complete**
 
 ### Current Features
 
@@ -14,13 +14,15 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 - Valuation engine: filters comparables (distance from coordinates, bedrooms, bathrooms,
   sqft), removes rent outliers (IQR), and reports percentiles and average
 - `POST /valuation` backed by the engine, using mock comparable data
+- Every successful valuation is saved to a local SQLite database (`data/rentpricingtool.db`,
+  created automatically)
+- `GET /history` (latest 25 valuations) and `GET /stats` (count and database details)
 - Automated tests
 
 ### Roadmap
 
 - RentCast integration
 - Geocoding
-- Persistence layer
 
 ## Requirements
 
@@ -69,6 +71,11 @@ curl -X POST http://127.0.0.1:8000/valuation \
 
 If `latitude` and `longitude` are omitted, the subject is placed at a default point in La Mesa, CA.
 
+```bash
+curl http://127.0.0.1:8000/history   # latest 25 valuations, newest first
+curl http://127.0.0.1:8000/stats     # {"total_valuations":..., "database_path":"...", "database_size_kb":...}
+```
+
 ## Test
 
 ```bash
@@ -79,7 +86,8 @@ pytest
 
 ```
 app/            FastAPI app: main.py, config.py, schemas.py, routers/valuation.py,
-                services/ (statistics, comparables, geo, valuation_engine, data_sources/)
+                services/ (statistics, comparables, geo, valuation_engine, data_sources/),
+                persistence/ (SQLite database and repository)
 tests/          pytest tests
 docs/           documentation
 scripts/        helper scripts
