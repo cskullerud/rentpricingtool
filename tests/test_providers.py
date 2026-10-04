@@ -7,6 +7,7 @@ from app.services.data_sources import (
     ProviderConfigurationError,
     ProviderType,
     RentCastComparableSource,
+    SubjectProperty,
     get_provider,
     get_provider_type,
 )
@@ -60,6 +61,9 @@ def test_unknown_provider_raises(monkeypatch):
 def test_placeholder_sources_are_not_implemented(source_class):
     with pytest.raises(NotImplementedError):
         source_class().get_comparables()
+    subject = SubjectProperty("1 A St", 32.7, -117.0, 3, 2, 1400)
+    with pytest.raises(NotImplementedError):
+        source_class().get_comparables(subject)
 
 
 def test_router_delegates_to_registry(monkeypatch):

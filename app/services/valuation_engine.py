@@ -5,7 +5,7 @@ from app.persistence.repositories import PersistenceError, ValuationRepository
 from app.schemas import ValuationRequest
 from app.services import comparables as comps
 from app.services import statistics as stats
-from app.services.data_sources.base import ComparableDataSource
+from app.services.data_sources.base import ComparableDataSource, SubjectProperty
 from app.services.geocoding.base import Geocoder
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,9 @@ def run_valuation(
 ) -> dict:
     """Price a subject property from the comparables supplied by `source`.
 
-    The engine does not know where comparables come from; the caller injects a source.
+    The engine does not know where comparables come from; the caller injects a source. The
+    source is given the subject with its resolved location, and the engine still applies
+    all the filters itself.
 
     Where the subject is: coordinates in the request are used as given and the geocoder is
     not called. Otherwise the address is geocoded (which raises AddressNotFoundError if it
@@ -47,7 +49,15 @@ def run_valuation(
     """
     latitude, longitude = _locate_subject(subject, geocoder)
 
-    candidates = source.get_comparables()
+    located = SubjectProperty(
+        address=subject.address,
+        latitude=latitude,
+        longitude=longitude,
+        beds=subject.beds,
+        baths=subject.baths,
+        sqft=subject.sqft,
+    )
+    candidates = source.get_comparables(located)
     candidates = comps.filter_by_distance(candidates, latitude, longitude)
     candidates = comps.filter_by_bedrooms(candidates, subject.beds)
     candidates = comps.filter_by_bathrooms(candidates, subject.baths)

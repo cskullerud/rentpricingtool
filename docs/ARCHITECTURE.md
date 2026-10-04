@@ -257,7 +257,7 @@ Valuation history is kept in a single SQLite file using Python's built-in `sqlit
 Valuation Engine
       │
       ▼
-ComparableDataSource      (interface: get_comparables() -> list[Comparable])
+ComparableDataSource      (interface: get_comparables(subject=None) -> list[Comparable])
       │
       ▼
 MockComparableSource      (static, in-memory, 26 records)
@@ -270,12 +270,15 @@ came from. `run_valuation(subject, source)` receives the source as an argument
 Tests can inject a fake source, or override that dependency to exercise the API with their
 own data, with no change to the engine.
 
-`get_comparables()` returns the unfiltered set. Filtering (`comparables.py`), outlier
+`get_comparables(subject=None)` receives the subject as a `SubjectProperty` (address,
+resolved latitude and longitude, beds, baths, sqft). A source that searches by location can
+use it to narrow its query; a fixed dataset such as the mock ignores it, and every source
+must still work when it is `None`. It returns the unfiltered set. Filtering (`comparables.py`), outlier
 removal and statistics happen in the engine, so every provider is treated the same way.
 
 ### Adding a provider
 
-1. Subclass `ComparableDataSource` and implement `get_comparables()`, returning
+1. Subclass `ComparableDataSource` and implement `get_comparables(self, subject=None)`, returning
    `Comparable` dicts.
 2. Return the provider from `get_comparable_source()` in the router (later this can be
    chosen from configuration).

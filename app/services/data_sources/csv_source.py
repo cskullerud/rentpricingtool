@@ -1,4 +1,4 @@
-from app.services.data_sources.base import Comparable, ComparableDataSource
+from app.services.data_sources.base import Comparable, ComparableDataSource, SubjectProperty
 
 
 class CsvComparableSource(ComparableDataSource):
@@ -9,5 +9,5 @@ class CsvComparableSource(ComparableDataSource):
     rather than skipping them silently; and take the file path as a constructor argument.
     """
 
-    def get_comparables(self) -> list[Comparable]:
+    def get_comparables(self, subject: SubjectProperty | None = None) -> list[Comparable]:
         raise NotImplementedError("The CSV provider is not implemented yet")

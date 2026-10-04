@@ -1,4 +1,4 @@
-from app.services.data_sources.base import Comparable, ComparableDataSource
+from app.services.data_sources.base import Comparable, ComparableDataSource, SubjectProperty
 
 # Coordinates are decimal degrees clustered around La Mesa / San Diego, CA. Most points are
 # within a mile of the default subject (config.DEFAULT_SUBJECT_LATITUDE/LONGITUDE); two are
@@ -40,6 +40,6 @@ MOCK_COMPARABLES: list[Comparable] = [
 class MockComparableSource(ComparableDataSource):
     """Static in-memory dataset used for development and tests."""
 
-    def get_comparables(self) -> list[Comparable]:
-        """Return a fresh copy so callers can't modify the dataset."""
+    def get_comparables(self, subject: SubjectProperty | None = None) -> list[Comparable]:
+        """Return a fresh copy so callers can't modify the dataset. `subject` is ignored."""
         return [dict(c) for c in MOCK_COMPARABLES]  # type: ignore[misc]

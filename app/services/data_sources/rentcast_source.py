@@ -1,4 +1,4 @@
-from app.services.data_sources.base import Comparable, ComparableDataSource
+from app.services.data_sources.base import Comparable, ComparableDataSource, SubjectProperty
 
 
 class RentCastComparableSource(ComparableDataSource):
@@ -9,5 +9,5 @@ class RentCastComparableSource(ComparableDataSource):
     HTTP layer: the test suite makes no network calls.
     """
 
-    def get_comparables(self) -> list[Comparable]:
+    def get_comparables(self, subject: SubjectProperty | None = None) -> list[Comparable]:
         raise NotImplementedError("The RentCast provider is not implemented yet")
