@@ -9,6 +9,11 @@
            value="{{ form.values.address }}" autocomplete="off" required maxlength="200"
            placeholder="123 Main St, La Mesa, CA">
     {{ field_error('address') }}
+    {% if geocoder.mock %}
+    <div class="form-text" id="geocoder-note">Address lookup is in demo mode: only a few sample addresses are known. For a real address, enter its latitude and longitude below.</div>
+    {% elif geocoder.valid %}
+    <div class="form-text" id="address-hint">Include the city, state and ZIP code, for example 123 Main St, San Diego, CA 92101.</div>
+    {% endif %}
   </div>
 
   <div class="col-12 col-sm-4">

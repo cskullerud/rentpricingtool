@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from app.persistence.repositories import ValuationRepository, get_repository
 from app.schemas import ValuationRequest, ValuationResponse
 from app.services.data_sources import ComparableDataSource, get_provider
-from app.services.geocoding import AddressNotFoundError, Geocoder, MockGeocoder
+from app.services.geocoding import AddressNotFoundError, Geocoder, build_geocoder
 from app.services.valuation_engine import InsufficientDataError, NoComparablesError, run_valuation
 
 router = APIRouter()
@@ -16,8 +16,9 @@ def get_comparable_source() -> ComparableDataSource:
 
 
 def get_geocoder() -> Geocoder:
-    """Choose the geocoder. Like get_comparable_source(), the one place naming a provider."""
-    return MockGeocoder()
+    """Choose the geocoder. Delegates to the registry (GEOCODER, default mock); like
+    get_comparable_source(), the dependency that tests override."""
+    return build_geocoder()
 
 
 @router.post("/valuation", response_model=ValuationResponse, response_model_exclude_none=True)

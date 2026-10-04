@@ -14,8 +14,9 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 - Valuation engine: filters comparables (distance from coordinates, bedrooms, bathrooms,
   sqft), removes rent outliers (IQR), and reports percentiles and average
 - `POST /valuation` backed by the engine, using mock comparable data
-- Address-to-coordinate geocoding behind a `Geocoder` interface (mock geocoder only; no
-  external calls). Coordinates in the request skip the geocoder.
+- Address-to-coordinate geocoding behind a `Geocoder` interface: a mock geocoder (the
+  development default, 13 demo addresses) or the free US Census geocoder (`GEOCODER=census`,
+  the Home Assistant app default), with a persistent cache. Coordinates in the request skip it.
 - Every successful valuation is saved to a local SQLite database (`data/rentpricingtool.db`,
   created automatically)
 - `GET /history` (latest 25 valuations) and `GET /stats` (count and database details)
@@ -31,7 +32,7 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 ### Roadmap
 
 - RentCast integration
-- A real geocoding provider (Google)
+- More geocoding providers (a Nominatim or Geocodio fallback); the US Census geocoder is in
 
 ## Requirements
 
@@ -110,8 +111,12 @@ curl -X POST http://127.0.0.1:8000/valuation \
 
 ### Addresses and geocoding
 
-If a request has no `latitude` and `longitude`, the address is geocoded. For now that is a
-**mock geocoder** that knows 13 fictional addresses around La Mesa and San Diego (for
+If a request has no `latitude` and `longitude`, the address is geocoded. Set `GEOCODER=census` to
+use the free **US Census geocoder** (US addresses only, no key; include the city, state and ZIP
+code, for example `123 Main St, San Diego, CA 92101`). Answers are cached in the database for 90
+days, apartment/unit/suite/`#number` designators are ignored, and a lookup that fails because the
+service is down returns **503** (not "address not found"). Without `GEOCODER` the default is the
+**mock geocoder**, which knows 13 fictional addresses around La Mesa and San Diego (for
 example `123 Main St, La Mesa, CA`, `456 Palm Ave, La Mesa, CA` and
 `789 Broadway, San Diego, CA`); matching ignores case and spacing, and a street alone such
 as `123 Main St` works when it is unambiguous. An address it doesn't know returns **404**
@@ -119,8 +124,8 @@ with a message; supply `latitude` and `longitude` to value any other location. T
 comparables are all in La Mesa, so the San Diego addresses geocode but find no comparables
 (also a 404).
 
-The geocoder sits behind a `Geocoder` interface in `app/services/geocoding/`, so a real
-provider (a Google stub is included) can replace the mock later.
+The geocoder sits behind a `Geocoder` interface in `app/services/geocoding/`; `get_geocoder()`
+in the router picks one from `GEOCODER` and is still the dependency tests override.
 
 ```bash
 curl http://127.0.0.1:8000/history   # latest 25 valuations, newest first

@@ -15,9 +15,11 @@ from app.security import PeerGuardMiddleware, load_allowed_peers_from_env
 from app.ui.errors import is_ui_page_request, render_error
 from app.ui.ingress import IngressMiddleware
 from app.ui.templating import STATIC_DIR, STATIC_URL
+from app.services.geocoding import build_geocoder, describe_geocoder
 from app.services.data_sources import (
     DataSourceError,
     ProviderConfigurationError,
+    ProviderType,
     get_provider,
     get_provider_type,
 )
@@ -41,6 +43,20 @@ async def lifespan(app: FastAPI):
         logger.info("Comparable data provider: %s", provider.value)
     except ProviderConfigurationError:
         logger.exception("Comparable data provider is misconfigured; /valuation will fail")
+    # Likewise for the address lookup. Building the geocoder validates its settings and makes no
+    # network call.
+    try:
+        geocoder, cache_enabled = describe_geocoder()
+        build_geocoder()
+        logger.info("Geocoder: %s", geocoder)
+        logger.info("Geocode cache: %s", "enabled" if cache_enabled else "disabled")
+        if geocoder == "mock" and get_provider_type() is ProviderType.RENTCAST:
+            logger.warning(
+                "RentCast provider active with mock geocoder: real addresses will not be found. "
+                "Set GEOCODER=census, or enter latitude and longitude with each valuation."
+            )
+    except ProviderConfigurationError:
+        logger.exception("The geocoder is misconfigured; address lookups will fail")
     yield
 
 

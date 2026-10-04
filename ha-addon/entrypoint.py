@@ -25,6 +25,7 @@ HOST = "0.0.0.0"  # inside the container; no port is published to the host
 PORT = 8099  # the ingress_port in config.yaml
 
 DATA_PROVIDERS = ("mock", "rentcast")
+GEOCODERS = ("mock", "census")  # census is the app default; mock only knows a few demo addresses
 LOG_LEVELS = ("debug", "info", "warning", "error")
 DATABASE_FILE = "rentpricingtool.db"  # created fresh in /data on first start
 SECRET_FILE = "ui_secret"
@@ -107,6 +108,7 @@ def build_environment(options: Mapping, data_dir: Path = DATA_DIR) -> dict[str, 
 
     environment = {
         "DATA_PROVIDER": provider,
+        "GEOCODER": _choice(options, "geocoder", GEOCODERS, "census"),
         "MIN_COMPARABLES_REQUIRED": str(_min_comparables(options)),
         "DATABASE_PATH": str(Path(data_dir) / DATABASE_FILE),
         "ALLOWED_PEERS": peers,
@@ -138,12 +140,19 @@ def main() -> int:
     log_config = load_log_config(level, LOG_CONFIG_PATH)
     print(
         f"Rent Pricing: data source {environment['DATA_PROVIDER']}, "
+        f"address lookup {environment['GEOCODER']}, "
         f"minimum comparables {environment['MIN_COMPARABLES_REQUIRED']}, "
         f"accepting connections only from {environment['ALLOWED_PEERS']}",
         flush=True,
     )
     if environment["DATA_PROVIDER"] == "rentcast":
         print("RentCast live data is on: each new area uses one request from your plan (cached 24 hours).", flush=True)
+        if environment["GEOCODER"] == "mock":
+            print(
+                "WARNING: RentCast provider active with mock geocoder: real addresses will not be found. "
+                "Set the option Address lookup to census, or enter latitude and longitude with each valuation.",
+                flush=True,
+            )
 
     uvicorn.run(
         "app.main:app",

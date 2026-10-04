@@ -333,16 +333,19 @@ for the default point are therefore unchanged from Phase 3. The mock geocoder pl
 ## Geocoding
 
 Addresses are turned into coordinates through a provider interface, in the same style as
-the comparable data sources. Only a mock exists; nothing calls an external service.
+the comparable data sources. Two geocoders exist: the mock (13 fictional addresses, no network;
+the default in development and for the tests) and the US Census geocoder (the default in the
+Home Assistant app).
 
 ```
 Valuation Engine
       │
       ▼
-Geocoder                (interface: geocode(address) -> {"latitude", "longitude"})
+Geocoder                 (interface: geocode(address) -> {"latitude", "longitude"})
       │
-      ▼
-MockGeocoder            (fixed table of 13 addresses, no network)
+      ├── MockGeocoder                 GEOCODER=mock (default): fixed table, no network
+      └── CachingGeocoder              GEOCODER=census
+              └── CensusGeocoder       US Census service over HTTPS, injectable transport
 ```
 
 - **`Geocoder`** (`geocoding/base.py`) has one abstract method, `geocode(address)`. It returns
@@ -371,6 +374,50 @@ MockGeocoder            (fixed table of 13 addresses, no network)
   with the insufficient-data body described under Minimum comparables.
 - **Stored history.** The database keeps the latitude and longitude *as the request gave
   them*, so they are NULL for a geocoded request; the geocoded point is not stored.
+
+### Census geocoder and the geocode cache
+
+`GEOCODER` selects the geocoder (`mock`, the default, or `census`), read on every call by
+`geocoder_config.get_geocoder_type()`; `geocoder_registry.build_geocoder()` builds it, and
+`get_geocoder()` in the router delegates to it, so tests still override that dependency.
+Building a geocoder makes no network call.
+
+- **`CensusGeocoder`** makes one GET to the Census one-line-address service
+  (`geocoding.geo.census.gov`, benchmark `Public_AR_Current`, JSON). The service is free, needs
+  no account, and covers US addresses only. It places an address on its street by interpolating
+  the street's address range: accurate to tens of metres, not a rooftop, which is plenty for the
+  engine's 1-mile comparable radius. A match has `coordinates.x` = longitude and `.y` =
+  latitude (a test pins that order, and out-of-range values are refused). No match raises
+  `AddressNotFoundError`; several matches more than 0.5 miles apart are ambiguous (the same
+  street in two towns) and ask for the city, state and ZIP code. The HTTP call is an injectable
+  `transport`, so tests make no network calls.
+- **Cleaning.** `geocoding/normalize.py` removes `Apt`, `Unit`, `Suite`/`Ste` and `#number`
+  designators before the lookup (a street such as "Unit St" is kept), and collapses spacing.
+  The same normalization, plus case, periods and "California" vs "CA", forms the cache key, so
+  `123 Main St Apt 4B` and `123 MAIN ST #7` share one entry.
+- **Errors.** Failures of the service are `GeocoderUnavailableError` (HTTP 429, 5xx, timeout,
+  network failure, or an HTML maintenance page; 503) and `GeocoderResponseError` (anything else
+  unexpected; 502). Both subclass `DataSourceError`, so the existing handlers and the UI show a
+  generic message ("The address lookup service is unavailable; try again shortly, or enter exact
+  coordinates") and never the URL or the exception text. They are not "address not found": the
+  address may be fine. Transient failures are retried once with backoff
+  (`GEOCODER_MAX_RETRIES`, `GEOCODER_RETRY_DELAY_SECONDS`, `GEOCODER_TIMEOUT_SECONDS`).
+- **`CachingGeocoder`** remembers answers in the existing `provider_cache` table under keys
+  starting `geocode` (no schema change): found addresses for 90 days
+  (`GEOCODE_CACHE_TTL_SECONDS`, 0 turns the cache off) and "not found" for one day
+  (`GEOCODE_NOT_FOUND_TTL_SECONDS`). Service failures are never cached. It keeps already-seen
+  addresses working during an outage and keeps load on the free service low. Like the RentCast
+  cache it is best effort: a database problem or a damaged entry just means a lookup.
+- **Order of events.** The engine locates the subject *before* fetching comparables, so a failed
+  address lookup never reaches the comparable data source, and RentCast is not called. Only a
+  successful lookup leads to a RentCast request.
+- **Startup.** The app logs `Geocoder: census` and `Geocode cache: enabled` (or `mock` and
+  `disabled`), and warns `RentCast provider active with mock geocoder` when real listings would
+  be paired with the demo address table. A bad setting is logged and the app keeps running.
+- **Logging.** Each lookup logs only its outcome and timing (`geocode source=census result=match
+  matches=1 ms=...`, `geocode result=match cache=hit`), never the address.
+- **Form.** With the mock the form says address lookup is in demo mode; with Census it asks for
+  the city, state and ZIP code.
 
 ### RentCast provider
 
@@ -406,11 +453,14 @@ an error if it is misconfigured, and keeps running so `/history` and `/stats` st
 
 | Provider | Stub | Notes |
 |---|---|---|
-| Google | `geocoding/future_google.py` | Call the Google Geocoding API from `geocode()`. Needs an API key from the environment, handling of quota and network errors (not "address not found"), refusal of imprecise matches, and caching. |
-| Other | | Mapbox, Nominatim, a local geocoder, or a chain of providers: anything that implements `Geocoder`. |
+| Nominatim | | Keyless fallback for addresses Census cannot place. The public service allows 1 request/s, needs an identifying User-Agent and requires results to be cached. |
+| Geocodio | | Rooftop-accurate US/Canada geocoder with a free tier (2,500 lookups/day), needs a key; the upgrade path if Census proves unreliable. |
+| Google | `geocoding/future_google.py` | Needs a billing account and key; latitude/longitude may be cached for only 30 days and not used with a non-Google map. |
+| Other | | Mapbox (its temporary geocoding forbids caching), a chain of providers: anything that implements `Geocoder`. |
 
-To add one: subclass `Geocoder`, return it from `get_geocoder()` in the router (later this
-can be chosen from configuration), and test it with a stubbed HTTP layer.
+To add one: subclass `Geocoder`, add it to `GeocoderType` and `geocoder_registry.build_geocoder()`,
+raise `GeocoderUnavailableError`/`GeocoderResponseError` for service failures (never
+`AddressNotFoundError`), and test it with a stubbed HTTP layer.
 
 ## Persistence
 
@@ -547,7 +597,7 @@ holds the default subject coordinate, a plain constant):
 | Variable | Default |
 |---|---|
 | `APP_NAME` | `Rent Pricing Tool` |
-| `VERSION` | `0.1.0` |
+| `VERSION` | `0.2.0` |
 | `ENVIRONMENT` | `development` |
 | `DATABASE_PATH` | `data/rentpricingtool.db` in the project |
 
@@ -606,19 +656,23 @@ Because the data and the algorithm are deterministic, tests assert exact values.
 
 ## Known limitations
 
-- The only data source is static mock data, so valuations are illustrative only.
-- The data source is chosen in code (`get_comparable_source()`), not from configuration.
-- Geocoding is a mock with 13 fixed addresses; any other address needs coordinates in the
-  request. The San Diego mock addresses are outside the mock comparables, so valuing them
-  returns 404.
-- The geocoder is chosen in code (`get_geocoder()`), not from configuration.
+- The default data source is static mock data (illustrative only); live RentCast data is chosen
+  with `DATA_PROVIDER`.
+- With `GEOCODER=mock` (the development default) geocoding knows only 13 fixed addresses; any
+  other address needs coordinates in the request. The Census geocoder (the Home Assistant app
+  default, `GEOCODER=census`) covers US addresses only, places them by street-range
+  interpolation rather than at the rooftop, and has no service guarantee (answers are cached to
+  soften outages). The San Diego mock addresses are outside the mock comparables, so valuing
+  them with mock data returns 404.
+- Addresses typed without a city, state or ZIP code can be ambiguous with a real geocoder; the
+  form asks for all three.
 - Distance is straight-line (great-circle), not driving distance.
 - Confidence depends only on the number of comparables, not on how widely their rents vary.
 - No authentication or rate limiting. `/history` and `/stats` are open.
 - History is never pruned and the schema has no migration tooling; changing the table means
   handling existing database files by hand.
 - One SQLite file suits a single-machine deployment, not several instances sharing data.
-- No logging or metrics.
+- Logging is plain text (valuation funnel and geocoding lines); there are no metrics.
 
 ## Planned (from the README roadmap)
 

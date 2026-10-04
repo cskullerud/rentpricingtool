@@ -53,7 +53,7 @@ def test_navbar_has_brand_and_both_links():
 
 
 def test_footer_shows_the_app_version():
-    assert "Rent Pricing Tool v0.1.0" in client.get("/ui/").text
+    assert "Rent Pricing Tool v0.2.0" in client.get("/ui/").text
 
 
 def test_history_link_target_exists_and_marks_itself_active():

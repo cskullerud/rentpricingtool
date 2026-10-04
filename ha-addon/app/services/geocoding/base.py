@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import TypedDict
 
+from app.services.data_sources.base import DataSourceError
+
 
 class Coordinates(TypedDict):
     latitude: float  # decimal degrees
@@ -17,6 +19,23 @@ class AddressNotFoundError(Exception):
             f"Could not geocode address {address!r}: {reason}. "
             "Or supply latitude and longitude to skip geocoding."
         )
+
+
+class GeocoderUnavailableError(DataSourceError):
+    """The address lookup service could not be reached, timed out, or is busy or down.
+
+    Not the same as AddressNotFoundError: the address may be fine. Retrying later may work.
+    """
+
+    status_code = 503
+    public_message = "The address lookup service is unavailable; try again shortly, or enter exact coordinates"
+
+
+class GeocoderResponseError(DataSourceError):
+    """The address lookup service answered, but not with something this app understands."""
+
+    status_code = 502
+    public_message = "The address lookup service returned an unexpected response; try again later, or enter exact coordinates"
 
 
 class Geocoder(ABC):

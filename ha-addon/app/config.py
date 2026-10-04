@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 APP_NAME: str = os.getenv("APP_NAME", "Rent Pricing Tool")
-VERSION: str = os.getenv("VERSION", "0.1.0")
+VERSION: str = os.getenv("VERSION", "0.2.0")
 ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 
 # Mock-phase placeholder: when a valuation request has no coordinates, the subject is

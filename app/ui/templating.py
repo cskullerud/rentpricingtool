@@ -8,6 +8,7 @@ from starlette.templating import Jinja2Templates
 
 from app.config import APP_NAME, VERSION
 from app.services.data_sources import ProviderConfigurationError, get_provider_type
+from app.services.geocoding import get_geocoder_type
 from app.ui import viewmodels
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +48,15 @@ def data_source_badge() -> dict:
 
 
 templates.env.globals.update(ui_url=ui_url, STATIC_URL=STATIC_URL, UI_PREFIX=UI_PREFIX, APP_NAME=APP_NAME, VERSION=VERSION)
+def geocoder_info() -> dict:
+    """What the form says about address lookup. Only reads the setting; makes no lookup."""
+    try:
+        name = get_geocoder_type().value
+    except ProviderConfigurationError:
+        return {"label": "unavailable", "mock": False, "valid": False}
+    return {"label": name, "mock": name == "mock", "valid": True}
+
+
 templates.env.filters["money"] = viewmodels.money
 
 
@@ -56,7 +66,9 @@ def render(request: Request, template: str, active: str, status_code: int = 200,
     Pages are marked no-store: they can contain a CSRF token and valuation results.
     """
     response = templates.TemplateResponse(
-        request, template, {"active": active, "badge": data_source_badge(), **context}, status_code=status_code
+        request, template,
+        {"active": active, "badge": data_source_badge(), "geocoder": geocoder_info(), **context},
+        status_code=status_code,
     )
     response.headers["Cache-Control"] = "no-store"
     return response

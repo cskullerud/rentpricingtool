@@ -5,6 +5,12 @@ configuration:
       Where comparable properties come from. "mock" uses built-in sample data (free, not real
       listings). "rentcast" uses live RentCast listings and needs an API key; each new area
       uses one request from your RentCast plan (results are cached for 24 hours).
+  geocoder:
+    name: Address lookup
+    description: >-
+      Turns a street address into a location. "census" uses the free US Census geocoder (US
+      addresses, no account or key, answers cached for 90 days). "mock" knows only a few demo
+      addresses; use it only for trying the page out.
   rentcast_api_key:
     name: RentCast API key
     description: >-

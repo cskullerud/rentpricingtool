@@ -102,7 +102,17 @@ def test_identity():
 
 
 def test_changelog_matches_the_version():
-    assert f"## {CONFIG['version']}" in (ADDON / "CHANGELOG.md").read_text()
+    changelog = (ADDON / "CHANGELOG.md").read_text()
+    assert f"## {CONFIG['version']}" in changelog
+    assert changelog.index(f"## {CONFIG['version']}") < changelog.index("## 0.1.1")  # newest first
+
+
+def test_the_version_is_0_2_0_and_matches_the_app():
+    from app.config import VERSION
+
+    assert CONFIG["version"] == "0.2.0"
+    if not os.getenv("VERSION"):  # the app default; an environment override would legitimately differ
+        assert VERSION == CONFIG["version"]
 
 
 # --- config.yaml: ingress -------------------------------------------------------------------------
@@ -156,6 +166,7 @@ def test_no_host_folders_are_mapped():
 
 EXPECTED_SCHEMA = {
     "data_provider": "list(mock|rentcast)",
+    "geocoder": "list(mock|census)",
     "rentcast_api_key": "password?",
     "min_comparables_required": "int(1,50)",
     "ui_secret_key": "password?",
@@ -170,7 +181,8 @@ def test_schema():
 
 def test_option_defaults():
     assert CONFIG["options"] == {
-        "data_provider": "mock", "min_comparables_required": 3, "log_level": "info", "allowed_peers": "172.30.32.2",
+        "data_provider": "mock", "geocoder": "census", "min_comparables_required": 3, "log_level": "info",
+        "allowed_peers": "172.30.32.2",
     }
 
 
@@ -203,6 +215,8 @@ def test_provider_choices_match_what_the_entrypoint_accepts():
     assert tuple(listed) == entry.DATA_PROVIDERS
     levels = re.fullmatch(r"list\((.*)\)", CONFIG["schema"]["log_level"]).group(1).split("|")
     assert tuple(levels) == entry.LOG_LEVELS
+    geocoders = re.fullmatch(r"list\((.*)\)", CONFIG["schema"]["geocoder"]).group(1).split("|")
+    assert tuple(geocoders) == entry.GEOCODERS
 
 
 def test_translations_cover_every_option():
@@ -496,7 +510,7 @@ def data_dir(tmp_path):
 
 def test_defaults_produce_a_safe_mock_setup(data_dir):
     env = entry.build_environment({}, data_dir)
-    assert env["DATA_PROVIDER"] == "mock"
+    assert env["DATA_PROVIDER"] == "mock" and env["GEOCODER"] == "census"
     assert env["MIN_COMPARABLES_REQUIRED"] == "3"
     assert env["ALLOWED_PEERS"] == "172.30.32.2"
     assert env["DATABASE_PATH"] == str(data_dir / "rentpricingtool.db")
@@ -539,7 +553,7 @@ def test_unknown_providers_are_refused_or_normalised(data_dir, provider):
             entry.build_environment(options, data_dir)
 
 
-@pytest.mark.parametrize("option", ["data_provider", "rentcast_api_key", "ui_secret_key", "allowed_peers", "log_level"])
+@pytest.mark.parametrize("option", ["data_provider", "geocoder", "rentcast_api_key", "ui_secret_key", "allowed_peers", "log_level"])
 @pytest.mark.parametrize("value", [5, True, ["mock"], {"a": 1}])
 def test_options_that_must_be_text_are_refused_not_defaulted(data_dir, option, value):
     with pytest.raises(entry.ConfigurationError, match=option):
@@ -693,6 +707,7 @@ def test_main_starts_uvicorn_on_the_ingress_port_without_trusting_proxy_headers(
 def test_main_puts_the_settings_in_the_environment(launch):
     launch({"data_provider": "rentcast", "rentcast_api_key": SECRET_KEY_VALUE, "min_comparables_required": 5})
     assert os.environ["DATA_PROVIDER"] == "rentcast" and os.environ["RENTCAST_API_KEY"] == SECRET_KEY_VALUE
+    assert os.environ["GEOCODER"] == "census"
     assert os.environ["MIN_COMPARABLES_REQUIRED"] == "5" and os.environ["ALLOWED_PEERS"] == "172.30.32.2"
     assert os.environ["DATABASE_PATH"].endswith("/data/rentpricingtool.db")
     assert len(os.environ["UI_SECRET_KEY"]) >= 48
@@ -702,7 +717,8 @@ def test_main_never_prints_secrets(launch, capsys):
     launch({"data_provider": "rentcast", "rentcast_api_key": SECRET_KEY_VALUE, "ui_secret_key": SECRET_KEY_VALUE + "-ui"})
     out = capsys.readouterr()
     assert SECRET_KEY_VALUE not in out.out + out.err
-    assert "data source rentcast" in out.out and "uses one request" in out.out
+    assert "data source rentcast, address lookup census" in out.out and "uses one request" in out.out
+    assert "WARNING" not in out.out  # census is the default, so no mock-geocoder warning
 
 
 def test_main_states_the_mock_setup_without_a_cost_warning(launch, capsys):
@@ -752,3 +768,63 @@ def test_docs_cover_installation_first_run_and_the_optional_migration():
 def test_docs_state_the_default_and_the_cost_of_live_data():
     docs = (ADDON / "DOCS.md").read_text()
     assert "default is `mock`" in docs and "one request" in docs and "cached" in docs
+
+
+# --- address lookup (the geocoder option) ----------------------------------------------------------------
+
+@pytest.mark.parametrize("value", ["census", "mock", " Census ", "MOCK"])
+def test_valid_geocoder_choices(data_dir, value):
+    assert entry.build_environment({"geocoder": value}, data_dir)["GEOCODER"] == value.strip().lower()
+
+
+@pytest.mark.parametrize("value", ["google", "nominatim", "census,mock", 5, True])
+def test_unknown_geocoders_are_refused(data_dir, value):
+    with pytest.raises(entry.ConfigurationError, match="geocoder"):
+        entry.build_environment({"geocoder": value}, data_dir)
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_a_blank_geocoder_means_the_app_default_census(data_dir, value):
+    assert entry.build_environment({"geocoder": value}, data_dir)["GEOCODER"] == "census"
+
+
+def test_the_app_default_is_census_but_development_stays_mock():
+    """The add-on turns the real geocoder on; the app itself defaults to the mock for development and tests."""
+    from app.services.geocoding import GeocoderType, get_geocoder_type
+
+    assert CONFIG["options"]["geocoder"] == "census"
+    assert os.getenv("GEOCODER") is None and get_geocoder_type() is GeocoderType.MOCK
+
+
+def test_the_environment_the_entrypoint_builds_selects_the_census_geocoder(data_dir, monkeypatch):
+    from app.services.geocoding import CachingGeocoder, build_geocoder
+
+    for name, value in entry.build_environment({}, data_dir).items():
+        monkeypatch.setenv(name, value)
+    assert isinstance(build_geocoder(), CachingGeocoder)
+
+
+def test_main_announces_the_address_lookup(launch, capsys):
+    launch({"data_provider": "mock", "geocoder": "census"})
+    assert "address lookup census" in capsys.readouterr().out
+
+
+def test_main_warns_when_rentcast_is_paired_with_the_mock_geocoder(launch, capsys):
+    code, calls = launch({"data_provider": "rentcast", "rentcast_api_key": SECRET_KEY_VALUE, "geocoder": "mock"})
+    out = capsys.readouterr().out
+    assert code == 0 and len(calls) == 1  # a warning, not a refusal
+    assert "WARNING: RentCast provider active with mock geocoder" in out
+    assert "Address lookup to census" in out
+    assert SECRET_KEY_VALUE not in out
+
+
+def test_main_has_no_warning_for_the_mock_pairing_without_rentcast(launch, capsys):
+    launch({"data_provider": "mock", "geocoder": "mock"})
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_docs_describe_the_address_lookup():
+    docs = (ADDON / "DOCS.md").read_text()
+    for needle in ("Address lookup", "Census", "never uses a RentCast request", "Geocoder: census",
+                   "geocode result=match cache=hit", "Apartment, unit, suite", "street-range interpolation"):
+        assert needle in docs, needle

@@ -1,5 +1,5 @@
 name: Rent Pricing
-version: "0.1.1"
+version: "0.2.0"
 slug: rentpricingtool
 description: Rent valuations from comparable listings, with a web UI in the sidebar
 url: https://github.com/cskullerud/rentpricingtool
@@ -27,11 +27,13 @@ watchdog: "http://[HOST]:[PORT:8099]/"
 
 options:
   data_provider: mock
+  geocoder: census
   min_comparables_required: 3
   log_level: info
   allowed_peers: "172.30.32.2"
 schema:
   data_provider: list(mock|rentcast)
+  geocoder: list(mock|census)
   rentcast_api_key: password?
   min_comparables_required: int(1,50)
   ui_secret_key: password?

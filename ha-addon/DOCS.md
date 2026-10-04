@@ -12,15 +12,18 @@
 ## First run
 
 1. On the app's **Configuration** tab leave everything at its defaults. The data source is
-   `mock` (built-in sample data), so nothing is charged.
+   `mock` (built-in sample data) and the address lookup is `census` (free), so nothing is charged.
 2. On the **Info** tab turn on **Show in sidebar**, then choose **Start**.
-3. Open the **Log** tab. You should see `Rent Pricing: data source mock ...` and, further down,
-   `Uvicorn running on http://0.0.0.0:8099`. If you see `ERROR:` instead, the message names the
-   option to fix.
+3. Open the **Log** tab. You should see `Rent Pricing: data source mock, address lookup census ...`,
+   the lines `Geocoder: census` and `Geocode cache: enabled`, and `Uvicorn running on
+   http://0.0.0.0:8099`. If you see `ERROR:` instead, the message names the option to fix.
 4. Click **Rent Pricing** in the sidebar. The page opens on the valuation form, with a grey
    **MOCK** badge at the top right.
-5. Try `123 Main St`, 3 bedrooms, 2 bathrooms, 1400 sq ft. With sample data the result is
-   $2,512 / month with high confidence from 16 comparables.
+5. The sample comparables are all in La Mesa, CA. To see a result with sample data, open
+   **Use exact coordinates** and enter latitude `32.7678`, longitude `-117.0231`, with any
+   address, 3 bedrooms, 2 bathrooms and 1400 sq ft. The result is $2,512 / month with high
+   confidence from 16 comparables. (An address elsewhere is looked up fine but finds no sample
+   comparables, so the page says there is not enough data.)
 6. Each valuation also writes one `valuation_funnel ...` line to the Log tab.
 
 Only administrators see the sidebar entry. The page works the same in the Home Assistant mobile
@@ -31,6 +34,7 @@ app and over remote access, because it is served through Home Assistant itself.
 | Option | Meaning |
 |---|---|
 | Data source (`data_provider`) | `mock` (default) or `rentcast`. |
+| Address lookup (`geocoder`) | `census` (default): the free US Census geocoder. `mock`: a few demo addresses only. |
 | RentCast API key (`rentcast_api_key`) | Required for `rentcast`. Stored masked by Home Assistant. |
 | Minimum comparables (`min_comparables_required`) | 1 to 50, default 3. Below it the page says there is not enough data. |
 | Form security key (`ui_secret_key`) | Optional. If empty, a key is created once and kept in the app's storage. |
@@ -39,11 +43,43 @@ app and over remote access, because it is served through Home Assistant itself.
 
 Save the options and **restart** the app for changes to take effect.
 
+### Address lookup
+
+With `census`, type a US address with its city, state and ZIP code, for example
+`123 Main St, San Diego, CA 92101`, and the app finds its location itself (you can still enter
+latitude and longitude to skip the lookup).
+
+- It is free and needs no account or key. A lookup **never uses a RentCast request.**
+- Apartment, unit, suite and `#number` designators are ignored.
+- Found addresses are remembered for 90 days in the app's database (an unknown address for one
+  day), so repeating an address makes no lookup, and already-seen addresses keep working if the
+  service is down.
+- It places an address on its street (street-range interpolation, not the rooftop): accurate to
+  tens of metres, which is plenty for finding comparables within a mile.
+- The Census service has no service guarantee. If it is down or busy the page says the address
+  lookup is unavailable (not "address not found"); try again shortly, or enter coordinates.
+- US addresses only. An address without a city, state or ZIP code may be ambiguous; the page
+  then asks for them.
+
+### Checking the address lookup
+
+1. After updating to 0.2.0, the Log tab shows `Geocoder: census` and `Geocode cache: enabled`.
+2. With the data source still on `mock`, enter a real address with its ZIP code and leave the
+   coordinates empty. The lookup works if the page says **Not enough comparable properties**
+   with a funnel starting at 26 fetched and 0 within 1 mile (the sample comparables are far
+   away). The Log tab shows `geocode source=census result=match`.
+3. Submit the same address again: the Log tab shows `geocode result=match cache=hit`.
+4. An address that does not exist shows "Address not found" on the address field and opens
+   the coordinates section.
+5. Only then switch the data source to `rentcast` (each new area uses one RentCast request) and
+   value an address near the one you tried.
+
 ### Using live RentCast data
 
 1. Get an API key from RentCast and make sure your plan is active.
 2. Set **Data source** to `rentcast`, paste the key into **RentCast API key**, save, and restart.
-   If the key is missing the app refuses to start and says why in the Log tab.
+   If the key is missing the app refuses to start and says why in the Log tab. Keep **Address
+   lookup** on `census`: with `mock` real addresses are not found, and the Log tab warns about it.
 3. The badge at the top right now reads **RENTCAST**, and a note under the button says live data
    is on.
 
@@ -94,5 +130,7 @@ app (internet access needed). Your database and settings are kept.
 | `403 Forbidden` in the page | The Log tab shows `Refused a connection from <address>`. If that address is where ingress traffic really comes from, put it in **Allowed source addresses**. |
 | The app stops with `ERROR: ...` | Read the message in the Log tab; it names the option to fix. |
 | Page says the data source is unavailable | The data service could not be reached or rejected the key (see the Log tab). Check your RentCast plan and key. |
+| "The address lookup service is unavailable" | The Census service is down or busy. Try again shortly or enter coordinates. Addresses looked up before still work. |
+| "Address not found" | Check the spelling and include city, state and ZIP code, or enter coordinates. |
 | "Not enough comparable properties" | Too few listings matched. The page shows where they were lost. Exact coordinates can help if the address was placed in the wrong spot. |
 | Install fails | Check the Supervisor log under **Settings > System > Logs**. The build needs internet access. |
