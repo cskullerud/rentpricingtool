@@ -43,7 +43,8 @@ class FakeTransport:
 
 def make(transport, **settings):
     return RentCastComparableSource(
-        RentCastSettings(api_key="secret-key", **settings), transport=transport, cache=TtlCache()
+        RentCastSettings(api_key="secret-key", **settings),
+        transport=transport, cache=TtlCache(), sleep=lambda seconds: None,
     )
 
 
@@ -318,3 +319,76 @@ def test_urllib_transport_maps_network_failures(monkeypatch, failure):
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     with pytest.raises(RentCastUnavailableError):
         urllib_transport("https://x.test/a", {}, 1.0)
+
+
+# --- retries ---------------------------------------------------------------------------
+
+class SequenceTransport:
+    """Answers with each (status, body) in turn, then repeats the last."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.calls = 0
+
+    def __call__(self, url, headers, timeout):
+        response = self.responses[min(self.calls, len(self.responses) - 1)]
+        self.calls += 1
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def retrying(transport, sleeps, **settings):
+    return RentCastComparableSource(
+        RentCastSettings(api_key="k", **settings), transport=transport, cache=TtlCache(), sleep=sleeps.append
+    )
+
+
+OK = (200, json.dumps([listing()]).encode())
+
+
+@pytest.mark.parametrize("first", [(429, b""), (503, b""), RentCastUnavailableError("down")])
+def test_transient_failures_are_retried_once(first):
+    transport, sleeps = SequenceTransport(first, OK), []
+    assert retrying(transport, sleeps).get_comparables(SUBJECT)[0]["rent"] == 2450
+    assert transport.calls == 2
+    assert sleeps == [0.5]
+
+
+def test_retries_are_bounded_and_back_off():
+    transport, sleeps = SequenceTransport((503, b"")), []
+    with pytest.raises(RentCastUnavailableError):
+        retrying(transport, sleeps, max_retries=3, retry_delay_seconds=1).get_comparables(SUBJECT)
+    assert transport.calls == 4
+    assert sleeps == [1, 2, 4]
+
+
+def test_rate_limit_error_after_the_last_retry():
+    transport, sleeps = SequenceTransport((429, b"")), []
+    with pytest.raises(RentCastRateLimitError):
+        retrying(transport, sleeps).get_comparables(SUBJECT)
+    assert transport.calls == 2
+
+
+@pytest.mark.parametrize("response", [(401, b""), (404, b""), (200, b"not json")])
+def test_permanent_failures_are_not_retried(response):
+    transport, sleeps = SequenceTransport(response), []
+    with pytest.raises(DataSourceError):
+        retrying(transport, sleeps).get_comparables(SUBJECT)
+    assert transport.calls == 1
+    assert sleeps == []
+
+
+def test_zero_retries_means_one_attempt():
+    transport, sleeps = SequenceTransport((503, b"")), []
+    with pytest.raises(RentCastUnavailableError):
+        retrying(transport, sleeps, max_retries=0).get_comparables(SUBJECT)
+    assert transport.calls == 1
+
+
+def test_retry_settings_from_env():
+    s = RentCastSettings.from_env({"RENTCAST_API_KEY": "k", "RENTCAST_MAX_RETRIES": "2", "RENTCAST_RETRY_DELAY_SECONDS": "0"})
+    assert (s.max_retries, s.retry_delay_seconds) == (2, 0.0)
+    for name, value in [("RENTCAST_MAX_RETRIES", "4"), ("RENTCAST_RETRY_DELAY_SECONDS", "-1")]:
+        with pytest.raises(ProviderConfigurationError, match=name):
+            RentCastSettings.from_env({"RENTCAST_API_KEY": "k", name: value})

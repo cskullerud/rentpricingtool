@@ -216,9 +216,24 @@ MockGeocoder            (fixed table of 13 addresses, no network)
 coordinates and a radius. Listings missing any field a `Comparable` needs are skipped (and
 counted in a log warning). Results are cached in memory by rounded coordinates, because the
 router builds a new source per request and every call is billable. The HTTP call is an
-injectable `transport`, so tests make no network calls. Failures raise `DataSourceError`
-subclasses (`RentCastAuthError`, `RentCastRateLimitError`, `RentCastUnavailableError`,
-`RentCastResponseError`); the router does not map these to HTTP responses yet.
+injectable `transport`, so tests make no network calls.
+
+Failures raise `DataSourceError` subclasses, each carrying the HTTP status and a generic
+public message (the exception text is only logged, never returned to the client):
+
+| Error | When | API response |
+|---|---|---|
+| `RentCastAuthError` | HTTP 401/403 | 502 |
+| `RentCastRateLimitError` | HTTP 429 | 503 |
+| `RentCastUnavailableError` | HTTP 5xx, timeout, network failure | 503 |
+| `RentCastResponseError` | other statuses, invalid JSON | 502 |
+| `ProviderConfigurationError` | missing key, bad setting, unknown `DATA_PROVIDER` | 503 |
+
+`main.py` registers handlers for these, so they also cover errors raised while the router
+dependency builds the source. Transient failures (429, 5xx, network) are retried with
+doubling backoff (`RENTCAST_MAX_RETRIES`, default 1; `RENTCAST_RETRY_DELAY_SECONDS`, default
+0.5); auth and response errors are not. At startup the app logs the chosen provider, or logs
+an error if it is misconfigured, and keeps running so `/history` and `/stats` still work.
 
 ### Future providers
 

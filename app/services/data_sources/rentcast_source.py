@@ -29,13 +29,22 @@ Transport = Callable[[str, Mapping[str, str], float], tuple[int, bytes]]
 class RentCastAuthError(DataSourceError):
     """RentCast rejected the API key (HTTP 401 or 403)."""
 
+    status_code = 502
+    public_message = "The comparable data provider rejected our credentials"
+
 
 class RentCastRateLimitError(DataSourceError):
     """RentCast says the rate limit was exceeded (HTTP 429)."""
 
+    status_code = 503
+    public_message = "The comparable data provider is busy; try again shortly"
+
 
 class RentCastUnavailableError(DataSourceError):
     """RentCast could not be reached, timed out, or answered with a server error."""
+
+    status_code = 503
+    public_message = "The comparable data provider is unavailable; try again shortly"
 
 
 class RentCastResponseError(DataSourceError):
@@ -63,6 +72,8 @@ class RentCastSettings:
     limit: int = 100  # listings per request; RentCast allows 1-500
     timeout_seconds: float = 10.0
     cache_ttl_seconds: float = 86400.0  # 0 turns caching off
+    max_retries: int = 1  # extra attempts after a 429, 5xx or network failure
+    retry_delay_seconds: float = 0.5  # doubles after each retry
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "RentCastSettings":
@@ -82,6 +93,8 @@ class RentCastSettings:
             limit=_env_number(env, "RENTCAST_LIMIT", cls.limit, int, 1, 500),
             timeout_seconds=_env_number(env, "RENTCAST_TIMEOUT_SECONDS", cls.timeout_seconds, float, 0.1, 120),
             cache_ttl_seconds=_env_number(env, "RENTCAST_CACHE_TTL_SECONDS", cls.cache_ttl_seconds, float, 0, 604800),
+            max_retries=_env_number(env, "RENTCAST_MAX_RETRIES", cls.max_retries, int, 0, 3),
+            retry_delay_seconds=_env_number(env, "RENTCAST_RETRY_DELAY_SECONDS", cls.retry_delay_seconds, float, 0, 10),
         )
 
 
@@ -181,10 +194,12 @@ class RentCastComparableSource(ComparableDataSource):
         settings: RentCastSettings | None = None,
         transport: Transport = urllib_transport,
         cache: TtlCache | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self._settings = settings if settings is not None else RentCastSettings.from_env()
         self._transport = transport
         self._cache = cache if cache is not None else _SHARED_CACHE
+        self._sleep = sleep
 
     def get_comparables(self, subject: SubjectProperty | None = None) -> list[Comparable]:
         if subject is None:
@@ -211,8 +226,9 @@ class RentCastComparableSource(ComparableDataSource):
 
         url = f"{settings.base_url}{LISTINGS_PATH}?{urllib.parse.urlencode(query)}"
         headers = {"X-Api-Key": settings.api_key, "Accept": "application/json"}
-        status, body = self._transport(url, headers, settings.timeout_seconds)
-        listings = self._parse(status, body)
+        started = time.monotonic()
+        listings = self._fetch(url, headers)
+        logger.info("RentCast: %d listings in %.0f ms", len(listings), (time.monotonic() - started) * 1000)
 
         comparables = [c for c in map(_to_comparable, listings) if c is not None]
         skipped = len(listings) - len(comparables)
@@ -221,6 +237,22 @@ class RentCastComparableSource(ComparableDataSource):
         if settings.cache_ttl_seconds > 0:
             self._cache.set(key, comparables, settings.cache_ttl_seconds)
         return [dict(c) for c in comparables]  # type: ignore[misc]
+
+    def _fetch(self, url: str, headers: Mapping[str, str]) -> list:
+        """Call RentCast, retrying only transient failures (429, 5xx, network) with backoff."""
+        settings = self._settings
+        delay = settings.retry_delay_seconds
+        for attempt in range(settings.max_retries + 1):
+            try:
+                status, body = self._transport(url, headers, settings.timeout_seconds)
+                return self._parse(status, body)
+            except (RentCastRateLimitError, RentCastUnavailableError) as exc:
+                if attempt == settings.max_retries:
+                    raise
+                logger.warning("RentCast attempt %d failed (%s); retrying in %.1f s", attempt + 1, exc, delay)
+                self._sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")  # the loop always returns or raises
 
     @staticmethod
     def _parse(status: int, body: bytes) -> list:

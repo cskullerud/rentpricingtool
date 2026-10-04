@@ -30,7 +30,14 @@ class SubjectProperty:
 
 
 class DataSourceError(Exception):
-    """A data source could not supply comparables (network failure, bad credentials, ...)."""
+    """A data source could not supply comparables (network failure, bad credentials, ...).
+
+    `status_code` and `public_message` say how the API reports it. The public message is
+    deliberately generic: the exception text may carry operational detail and is only logged.
+    """
+
+    status_code: int = 502
+    public_message: str = "The comparable data provider failed to return data"
 
 
 class ComparableDataSource(ABC):
