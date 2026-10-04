@@ -214,8 +214,12 @@ MockGeocoder            (fixed table of 13 addresses, no network)
 `RentCastComparableSource` (`DATA_PROVIDER=rentcast`, `RENTCAST_API_KEY` required) makes one
 `GET /v1/listings/rental/long-term` call per uncached area, searching by the subject's
 coordinates and a radius. Listings missing any field a `Comparable` needs are skipped (and
-counted in a log warning). Results are cached in memory by rounded coordinates, because the
-router builds a new source per request and every call is billable. The HTTP call is an
+counted in a log warning). Results are cached in the application's SQLite database
+(`provider_cache` table, `persistence/cache.py`) by rounded coordinates, radius and limit, so
+they survive restarts: the router builds a new source per request and every call is
+billable. The cache is best effort; if the database is unavailable it reads as empty and the
+API is called normally. Entries expire after `RENTCAST_CACHE_TTL_SECONDS` and expired rows
+are purged on the next write. The HTTP call is an
 injectable `transport`, so tests make no network calls.
 
 Failures raise `DataSourceError` subclasses, each carrying the HTTP status and a generic
@@ -259,7 +263,8 @@ Valuation history is kept in a single SQLite file using Python's built-in `sqlit
   because sqlite3 connections must not be shared between threads and FastAPI runs sync
   endpoints in a thread pool. `connection()` is a context manager that commits on success,
   rolls back on error, and always closes.
-- **Schema.** One table, `valuation_requests`: `id`, `created_at` (ISO 8601 UTC text), the
+- **Schema.** Two tables. `provider_cache` (`cache_key`, `value` as JSON, `created_at`,
+  `expires_at`; see the RentCast provider) holds paid-API responses. `valuation_requests`: `id`, `created_at` (ISO 8601 UTC text), the
   request (`address`, `beds`, `baths`, `sqft`, `latitude`, `longitude`) and the result
   (`comparable_count`, `p25`, `median`, `p75`, `average`, `recommended_rent`).
   `latitude` and `longitude` hold what the request supplied, so they are NULL when the

@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS valuation_requests (
 
     recommended_rent REAL
 );
+
+-- Responses from paid data providers (RentCast), so they survive restarts. Rows expire at
+-- expires_at (epoch seconds) and are removed lazily.
+CREATE TABLE IF NOT EXISTS provider_cache (
+    cache_key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_cache_expires_at ON provider_cache (expires_at);
 """
 
 

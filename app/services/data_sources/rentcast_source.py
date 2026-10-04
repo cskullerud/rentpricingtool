@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from app.services.data_sources.base import (
     Comparable,
@@ -110,8 +111,16 @@ def urllib_transport(url: str, headers: Mapping[str, str], timeout: float) -> tu
         raise RentCastUnavailableError(f"Could not reach RentCast: {exc}") from exc
 
 
+class Cache(Protocol):
+    """What the source needs from a cache: SqliteCache (production) and TtlCache both fit."""
+
+    def get(self, key): ...
+
+    def set(self, key, value, ttl: float) -> None: ...
+
+
 class TtlCache:
-    """A small thread-safe in-memory cache whose entries expire."""
+    """A small thread-safe in-memory cache whose entries expire (for tests and no-DB use)."""
 
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self._clock = clock
@@ -138,9 +147,15 @@ class TtlCache:
             self._items.clear()
 
 
-# Shared between instances: the router builds a new source for every request, and every
-# uncached lookup costs a billable RentCast call.
-_SHARED_CACHE = TtlCache()
+def _default_cache() -> Cache:
+    """The persistent cache in the application database.
+
+    Persistent and shared because the router builds a new source for every request and the
+    app restarts, while every uncached lookup costs a billable RentCast call.
+    """
+    from app.persistence import SqliteCache, get_database_manager
+
+    return SqliteCache(get_database_manager())
 
 
 def _number(value) -> float | None:
@@ -186,19 +201,20 @@ class RentCastComparableSource(ComparableDataSource):
     listings that have every field a Comparable needs. Filtering to the subject and the
     statistics stay in the engine. Needs the subject's location, so `subject` is required.
 
-    `transport` and `cache` can be injected; tests do, so they never touch the network.
+    `transport` and `cache` can be injected; tests do, so they never touch the network or
+    the real database.
     """
 
     def __init__(
         self,
         settings: RentCastSettings | None = None,
         transport: Transport = urllib_transport,
-        cache: TtlCache | None = None,
+        cache: Cache | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._settings = settings if settings is not None else RentCastSettings.from_env()
         self._transport = transport
-        self._cache = cache if cache is not None else _SHARED_CACHE
+        self._cache = cache  # None means the persistent default, resolved on first use
         self._sleep = sleep
 
     def get_comparables(self, subject: SubjectProperty | None = None) -> list[Comparable]:
@@ -220,8 +236,11 @@ class RentCastComparableSource(ComparableDataSource):
             settings.radius_miles,
             settings.limit,
         )
+        if self._cache is None:
+            self._cache = _default_cache()
         cached = self._cache.get(key)
         if cached is not None:
+            logger.info("RentCast: cache hit, no API call")
             return [dict(c) for c in cached]  # type: ignore[misc]
 
         url = f"{settings.base_url}{LISTINGS_PATH}?{urllib.parse.urlencode(query)}"
