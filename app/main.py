@@ -3,10 +3,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import APP_NAME, VERSION
 from app.persistence import PersistenceError, get_database_manager
 from app.routers import history, stats, valuation
+from app.routers import ui as ui_router
+from app.ui.ingress import IngressMiddleware
+from app.ui.templating import STATIC_DIR, STATIC_URL
 from app.services.data_sources import (
     DataSourceError,
     ProviderConfigurationError,
@@ -56,6 +60,9 @@ async def provider_configuration_error_handler(request: Request, exc: ProviderCo
 app.include_router(valuation.router)
 app.include_router(stats.router)
 app.include_router(history.router)
+app.include_router(ui_router.router)
+app.mount(STATIC_URL, StaticFiles(directory=STATIC_DIR), name="ui-static")
+app.add_middleware(IngressMiddleware)
 
 
 @app.get("/")

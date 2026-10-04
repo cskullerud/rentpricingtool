@@ -183,6 +183,37 @@ is not stored: it is calculated from the coordinates when filtering. The set del
 that pass the filters, plus properties the filters should exclude, so every stage of the
 pipeline is exercised.
 
+## Web UI
+
+Server-rendered HTML with Jinja2 and Bootstrap 5.3, under the `/ui` prefix. No JavaScript
+framework, no build step and no CDN: Bootstrap's CSS and JS are vendored in
+`app/static/vendor/bootstrap` (pinned version and SHA-256 checksums in its `VERSION` file).
+
+```
+app/
+  routers/ui.py        HTML routes (hidden from OpenAPI): GET /ui, /ui/, /ui/history
+  ui/
+    templating.py      Jinja2Templates, the u() URL helper, the data-source badge
+    ingress.py         IngressMiddleware: X-Ingress-Path -> ASGI root_path
+  templates/           base.html (navbar, theme, footer), valuation_form.html, history.html
+  static/              mounted at /ui/static: vendor/bootstrap, css/app.css
+```
+
+- **Ingress-safe URLs.** Home Assistant ingress serves the app under a prefix and reports it in
+  `X-Ingress-Path`. The middleware copies a *validated* value into `root_path` (single leading
+  `/`, only letters, digits and `_ . - /`, no `..`, at most 200 characters; anything else is
+  ignored), and templates build every link, form action and static URL with `{{ u('/ui/...') }}`.
+  Without the header the prefix is empty. The JSON API is not affected.
+- **No redirects.** `/ui` and `/ui/` are both served directly, because a redirect behind the
+  ingress proxy would have to rebuild the URL.
+- **Data-source badge.** The navbar shows MOCK, RENTCAST or CSV from `get_provider_type()`
+  (read on every request), or MISCONFIGURED if `DATA_PROVIDER` is invalid. It never builds a
+  provider, so it needs no API key and makes no API call.
+- **Theme.** Bootstrap's `data-bs-theme` follows the device's light/dark setting.
+- **Status.** The form is rendered but its submit button is disabled; the history page is a
+  placeholder. Submitting and the real history page come in later steps.
+- **Dependencies.** `jinja2` and `python-multipart` (for form posts, in the next step).
+
 ## Geographic modeling
 
 Distance is calculated, not stored.
@@ -451,6 +482,10 @@ The app does not load `.env` by itself. Use `uvicorn app.main:app --env-file .en
   address only, with coordinates only, and with an unknown address
 - `test_minimum_comparables.py`, `test_quality.py`: the minimum-comparables rule, confidence
   levels, funnel counts, the funnel log line, and diagnostics in the insufficient-data body
+- `test_ui_infrastructure.py`: UI pages and templates, the data-source badge, local Bootstrap
+  assets and their checksums, no external URLs, static-file path safety, ingress prefix
+  handling (including unsafe header values), and that the JSON API and OpenAPI schema are
+  unchanged
 - `test_api.py`: endpoints through FastAPI's `TestClient`
 
 Because the data and the algorithm are deterministic, tests assert exact values.

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Valuation{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Rent valuation</h1>
+
+<div class="alert alert-info" role="status" id="not-enabled-notice">
+  The form is not connected yet. Submitting valuations arrives in the next step.
+</div>
+
+<form id="valuation-form" method="post" action="{{ u(UI_PREFIX ~ '/valuation') }}" novalidate>
+  <div class="row g-3">
+    <div class="col-12">
+      <label for="address" class="form-label">Address</label>
+      <input type="text" class="form-control form-control-lg" id="address" name="address"
+             autocomplete="off" required placeholder="123 Main St, La Mesa, CA">
+    </div>
+
+    <div class="col-4">
+      <label for="beds" class="form-label">Bedrooms</label>
+      <input type="number" class="form-control form-control-lg" id="beds" name="beds"
+             inputmode="numeric" min="0" step="1" required>
+      <div class="form-text">0 = studio</div>
+    </div>
+    <div class="col-4">
+      <label for="baths" class="form-label">Bathrooms</label>
+      <input type="number" class="form-control form-control-lg" id="baths" name="baths"
+             inputmode="decimal" min="0" step="0.5" required>
+    </div>
+    <div class="col-4">
+      <label for="sqft" class="form-label">Sq ft</label>
+      <input type="number" class="form-control form-control-lg" id="sqft" name="sqft"
+             inputmode="numeric" min="1" step="1" required>
+    </div>
+
+    <div class="col-12">
+      <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse"
+              data-bs-target="#coordinates" aria-expanded="false" aria-controls="coordinates">
+        Use exact coordinates (optional)
+      </button>
+      <div class="collapse mt-2" id="coordinates">
+        <div class="row g-3">
+          <div class="col-6">
+            <label for="latitude" class="form-label">Latitude</label>
+            <input type="number" class="form-control" id="latitude" name="latitude"
+                   inputmode="decimal" min="-90" max="90" step="any">
+          </div>
+          <div class="col-6">
+            <label for="longitude" class="form-label">Longitude</label>
+            <input type="number" class="form-control" id="longitude" name="longitude"
+                   inputmode="decimal" min="-180" max="180" step="any">
+          </div>
+          <div class="col-12 form-text">Give both or neither. Coordinates skip address lookup.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <button type="submit" class="btn btn-primary btn-lg w-100" id="submit-button" disabled>
+        Get valuation
+      </button>
+    </div>
+  </div>
+</form>
+{% endblock %}

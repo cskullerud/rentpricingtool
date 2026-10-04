@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Valuation{% endblock %} · {{ APP_NAME }}</title>
+  <script>
+    // Follow the device's light/dark setting (Home Assistant's app and browsers both set it).
+    (function () {
+      var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-bs-theme", dark ? "dark" : "light");
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ u(STATIC_URL ~ '/vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ u(STATIC_URL ~ '/css/app.css') }}">
+</head>
+<body>
+  <nav class="navbar navbar-expand bg-body-tertiary border-bottom" aria-label="Main">
+    <div class="container-fluid app-container">
+      <a class="navbar-brand fw-semibold" href="{{ u(UI_PREFIX ~ '/') }}">{{ APP_NAME }}</a>
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'valuation' %} active{% endif %}"
+             href="{{ u(UI_PREFIX ~ '/') }}"{% if active == 'valuation' %} aria-current="page"{% endif %}>Valuation</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if active == 'history' %} active{% endif %}"
+             href="{{ u(UI_PREFIX ~ '/history') }}"{% if active == 'history' %} aria-current="page"{% endif %}>History</a>
+        </li>
+      </ul>
+      <span id="data-source-badge" class="badge {{ badge.css }}" title="{{ badge.title }}">{{ badge.label }}</span>
+    </div>
+  </nav>
+
+  <main class="container-fluid app-container py-4">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="container-fluid app-container pb-4 text-body-secondary small">
+    {{ APP_NAME }} v{{ VERSION }}
+  </footer>
+
+  <script src="{{ u(STATIC_URL ~ '/vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+</body>
+</html>

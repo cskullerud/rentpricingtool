@@ -1,0 +1,7 @@
+Bootstrap 5.3.8 (MIT, see LICENSE)
+Source: https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/ (downloaded once; served locally, no CDN at runtime)
+SHA-256 (hex):
+  d85327d99c7a3ee1f9b5d0500d1370acea3ad2db39c163c2f51f232baedbdede  bootstrap.min.css
+  e4fd49181388c48ec5040bd3fe66f57c29c8e67fcd8502b3354b96ec7ab47cc7  bootstrap.bundle.min.js
+Verified against the hashes jsdelivr publishes for this release. To upgrade: download the same
+two files for the new version, update this file, and rerun tests/test_ui_infrastructure.py.

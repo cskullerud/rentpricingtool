@@ -19,6 +19,9 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 - Every successful valuation is saved to a local SQLite database (`data/rentpricingtool.db`,
   created automatically)
 - `GET /history` (latest 25 valuations) and `GET /stats` (count and database details)
+- Web UI under `/ui` (Jinja2 + Bootstrap 5.3, served locally with no CDN and no Node tooling).
+  So far: the page layout, navbar, a MOCK/RENTCAST data-source badge and the valuation form
+  (not yet connected). Safe to serve through Home Assistant ingress.
 - Automated tests
 
 ### Roadmap
@@ -43,6 +46,13 @@ The API is then at http://127.0.0.1:8000, with interactive Swagger docs at http:
 
 Optional settings (`APP_NAME`, `VERSION`, `ENVIRONMENT`) are read from environment variables;
 copy `.env.example` to `.env` and add `--env-file .env` to the `uvicorn` command to use them.
+
+## Web UI
+
+Open `http://127.0.0.1:8000/ui/`. The UI lives under `/ui`; the JSON API (`/`, `/valuation`,
+`/history`, `/stats`) is unchanged. Bootstrap 5.3.8 is vendored in `app/static/vendor/bootstrap`
+(see its `VERSION` file), so pages need no internet access. Behind Home Assistant ingress the
+`X-Ingress-Path` header is used as the URL prefix for every link and asset.
 
 ## How a valuation works
 
