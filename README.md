@@ -5,7 +5,7 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 
 ## Project Status
 
-**Phase 5 - SQLite Persistence Complete**
+**Phase 6 - Geocoding Abstraction Complete**
 
 ### Current Features
 
@@ -14,6 +14,8 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 - Valuation engine: filters comparables (distance from coordinates, bedrooms, bathrooms,
   sqft), removes rent outliers (IQR), and reports percentiles and average
 - `POST /valuation` backed by the engine, using mock comparable data
+- Address-to-coordinate geocoding behind a `Geocoder` interface (mock geocoder only; no
+  external calls). Coordinates in the request skip the geocoder.
 - Every successful valuation is saved to a local SQLite database (`data/rentpricingtool.db`,
   created automatically)
 - `GET /history` (latest 25 valuations) and `GET /stats` (count and database details)
@@ -22,7 +24,7 @@ computed from a **mock comparable-property dataset**; real data sources come lat
 ### Roadmap
 
 - RentCast integration
-- Geocoding
+- A real geocoding provider (Google)
 
 ## Requirements
 
@@ -63,13 +65,25 @@ curl -X POST http://127.0.0.1:8000/valuation \
   -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}'
 # {"comparable_count":16,"recommended_rent":2512,"p25":2419,"median":2512,"p75":2606,"average":2505}
 
-# Optionally give the subject's location (both values, or neither):
+# Or give the subject's coordinates (both values, or neither); the address is then not geocoded:
 curl -X POST http://127.0.0.1:8000/valuation \
   -H "Content-Type: application/json" \
-  -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400, "latitude": 32.7678, "longitude": -117.0231}'
+  -d '{"address": "any text", "beds": 3, "baths": 2, "sqft": 1400, "latitude": 32.7678, "longitude": -117.0231}'
 ```
 
-If `latitude` and `longitude` are omitted, the subject is placed at a default point in La Mesa, CA.
+### Addresses and geocoding
+
+If a request has no `latitude` and `longitude`, the address is geocoded. For now that is a
+**mock geocoder** that knows 13 fictional addresses around La Mesa and San Diego (for
+example `123 Main St, La Mesa, CA`, `456 Palm Ave, La Mesa, CA` and
+`789 Broadway, San Diego, CA`); matching ignores case and spacing, and a street alone such
+as `123 Main St` works when it is unambiguous. An address it doesn't know returns **404**
+with a message; supply `latitude` and `longitude` to value any other location. The mock
+comparables are all in La Mesa, so the San Diego addresses geocode but find no comparables
+(also a 404).
+
+The geocoder sits behind a `Geocoder` interface in `app/services/geocoding/`, so a real
+provider (a Google stub is included) can replace the mock later.
 
 ```bash
 curl http://127.0.0.1:8000/history   # latest 25 valuations, newest first
@@ -86,7 +100,7 @@ pytest
 
 ```
 app/            FastAPI app: main.py, config.py, schemas.py, routers/valuation.py,
-                services/ (statistics, comparables, geo, valuation_engine, data_sources/),
+                services/ (statistics, comparables, geo, valuation_engine, data_sources/, geocoding/),
                 persistence/ (SQLite database and repository)
 tests/          pytest tests
 docs/           documentation

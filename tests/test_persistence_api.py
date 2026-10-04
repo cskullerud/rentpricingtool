@@ -2,12 +2,22 @@ import os
 
 from fastapi.testclient import TestClient
 
+from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
 from app.main import app
 from app.persistence import DatabaseManager, ValuationRepository, get_repository
 
 client = TestClient(app)
 
 SUBJECT = {"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}
+# Made-up addresses need coordinates, or the geocoder (rightly) can't find them.
+AT_DEFAULT_POINT = {"latitude": DEFAULT_SUBJECT_LATITUDE, "longitude": DEFAULT_SUBJECT_LONGITUDE}
+
+
+def value(payload):
+    """POST a valuation that is expected to succeed."""
+    response = client.post("/valuation", json=payload)
+    assert response.status_code == 200, response.text
+    return response
 
 
 def test_valuation_response_format_is_unchanged():
@@ -19,14 +29,16 @@ def test_valuation_response_format_is_unchanged():
 
 
 def test_each_successful_valuation_is_saved():
-    client.post("/valuation", json=SUBJECT)
-    client.post("/valuation", json={**SUBJECT, "address": "9 Other St", "beds": 2, "baths": 1, "sqft": 1150})
+    value(SUBJECT)
+    value({**SUBJECT, "address": "9 Other St", "beds": 2, "baths": 1, "sqft": 1150, **AT_DEFAULT_POINT})
     assert client.get("/stats").json()["total_valuations"] == 2
 
 
 def test_failed_valuations_are_not_saved():
-    client.post("/valuation", json={**SUBJECT, "beds": 10, "baths": 8, "sqft": 9000})  # 404
-    client.post("/valuation", json={"address": "x"})  # 422
+    huge = {**SUBJECT, "beds": 10, "baths": 8, "sqft": 9000}
+    assert client.post("/valuation", json={**huge, **AT_DEFAULT_POINT}).status_code == 404  # no comparables
+    assert client.post("/valuation", json={**huge, "address": "nowhere"}).status_code == 404  # unknown address
+    assert client.post("/valuation", json={"address": "x"}).status_code == 422
     assert client.get("/stats").json()["total_valuations"] == 0
 
 
@@ -72,7 +84,7 @@ def test_history_returns_request_and_response_data_newest_first():
 
 def test_history_is_limited_to_the_latest_25(repository):
     for n in range(30):
-        client.post("/valuation", json={**SUBJECT, "address": f"{n} Test St"})
+        value({**SUBJECT, "address": f"{n} Test St", **AT_DEFAULT_POINT})
     history = client.get("/history").json()
     assert len(history) == 25
     assert history[0]["address"] == "29 Test St"

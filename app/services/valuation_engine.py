@@ -6,6 +6,7 @@ from app.schemas import ValuationRequest
 from app.services import comparables as comps
 from app.services import statistics as stats
 from app.services.data_sources.base import ComparableDataSource
+from app.services.geocoding.base import Geocoder
 
 logger = logging.getLogger(__name__)
 
@@ -14,16 +15,29 @@ class NoComparablesError(Exception):
     """No comparable properties matched the subject after filtering."""
 
 
+def _locate_subject(subject: ValuationRequest, geocoder: Geocoder | None) -> tuple[float, float]:
+    if subject.latitude is not None and subject.longitude is not None:
+        return subject.latitude, subject.longitude
+    if geocoder is not None:
+        found = geocoder.geocode(subject.address)
+        return found["latitude"], found["longitude"]
+    return DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
+
+
 def run_valuation(
     subject: ValuationRequest,
     source: ComparableDataSource,
     repository: ValuationRepository | None = None,
+    geocoder: Geocoder | None = None,
 ) -> dict:
     """Price a subject property from the comparables supplied by `source`.
 
     The engine does not know where comparables come from; the caller injects a source.
-    The subject's coordinates are used for the distance filter; if the request has none,
-    the default mock coordinate from app/config.py is used.
+
+    Where the subject is: coordinates in the request are used as given and the geocoder is
+    not called. Otherwise the address is geocoded (which raises AddressNotFoundError if it
+    can't be). Callers that pass no geocoder get the default mock coordinate from
+    app/config.py instead.
 
     If a `repository` is given, each successful valuation is saved to it. Saving is best
     effort: if the database is unavailable the valuation is still returned. Failed
@@ -31,8 +45,7 @@ def run_valuation(
     comparable_count is the number of comparables actually used for pricing, i.e. after
     both the filters and the outlier removal.
     """
-    latitude = subject.latitude if subject.latitude is not None else DEFAULT_SUBJECT_LATITUDE
-    longitude = subject.longitude if subject.longitude is not None else DEFAULT_SUBJECT_LONGITUDE
+    latitude, longitude = _locate_subject(subject, geocoder)
 
     candidates = source.get_comparables()
     candidates = comps.filter_by_distance(candidates, latitude, longitude)
