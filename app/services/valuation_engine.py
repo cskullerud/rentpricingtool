@@ -1,6 +1,6 @@
 import logging
 
-from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
+from app.config import DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE, MIN_COMPARABLES_REQUIRED
 from app.persistence.repositories import PersistenceError, ValuationRepository
 from app.schemas import ValuationRequest
 from app.services import comparables as comps
@@ -13,6 +13,36 @@ logger = logging.getLogger(__name__)
 
 class NoComparablesError(Exception):
     """No comparable properties matched the subject after filtering."""
+
+
+class InsufficientDataError(NoComparablesError):
+    """Too few comparables remained (after filtering and outlier removal) to price reliably.
+
+    A subclass of NoComparablesError, so callers that already handle "nothing matched" also
+    handle this. `comparable_count` can be 0.
+    """
+
+    def __init__(self, comparable_count: int, minimum_required: int):
+        self.comparable_count = comparable_count
+        self.minimum_required = minimum_required
+        if comparable_count == 0:
+            message = "No comparable properties found for this property."
+        else:
+            noun = "property" if comparable_count == 1 else "properties"
+            message = (
+                f"Only {comparable_count} comparable {noun} remained after filtering; "
+                f"at least {minimum_required} are required for a valuation."
+            )
+        super().__init__(message)
+
+    def to_response(self) -> dict:
+        """The body returned to API clients instead of a valuation."""
+        return {
+            "status": "insufficient_data",
+            "detail": str(self),
+            "comparable_count": self.comparable_count,
+            "minimum_required": self.minimum_required,
+        }
 
 
 def _locate_subject(subject: ValuationRequest, geocoder: Geocoder | None) -> tuple[float, float]:
@@ -29,6 +59,7 @@ def run_valuation(
     source: ComparableDataSource,
     repository: ValuationRepository | None = None,
     geocoder: Geocoder | None = None,
+    min_comparables: int | None = None,
 ) -> dict:
     """Price a subject property from the comparables supplied by `source`.
 
@@ -43,10 +74,15 @@ def run_valuation(
 
     If a `repository` is given, each successful valuation is saved to it. Saving is best
     effort: if the database is unavailable the valuation is still returned. Failed
-    valuations (no comparables) are not saved.
+    valuations (insufficient data) are not saved.
     comparable_count is the number of comparables actually used for pricing, i.e. after
     both the filters and the outlier removal.
+
+    If fewer than `min_comparables` (default: config.MIN_COMPARABLES_REQUIRED, 3) remain
+    after the filters and the outlier removal, InsufficientDataError is raised instead of
+    returning a valuation.
     """
+    minimum = MIN_COMPARABLES_REQUIRED if min_comparables is None else min_comparables
     latitude, longitude = _locate_subject(subject, geocoder)
 
     located = SubjectProperty(
@@ -63,11 +99,9 @@ def run_valuation(
     candidates = comps.filter_by_bathrooms(candidates, subject.baths)
     candidates = comps.filter_by_sqft(candidates, subject.sqft)
 
-    rents = [c["rent"] for c in candidates]
-    if not rents:
-        raise NoComparablesError("No comparable properties found for this property.")
-
-    rents = stats.remove_outliers(rents)
+    rents = stats.remove_outliers([c["rent"] for c in candidates])
+    if len(rents) < minimum:
+        raise InsufficientDataError(len(rents), minimum)
     percentiles = stats.calculate_percentiles(rents)
     median = round(percentiles["median"])
     result = {

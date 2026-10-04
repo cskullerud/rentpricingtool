@@ -52,7 +52,11 @@ copy `.env.example` to `.env` and add `--env-file .env` to the `uvicorn` command
 4. Report p25, median, p75 and average of what remains. `recommended_rent` is the median,
    and `comparable_count` is the number of comparables used after outlier removal.
 
-If nothing matches the subject, `POST /valuation` returns 404.
+If fewer than `MIN_COMPARABLES_REQUIRED` (default 3) comparables remain after steps 2 and 3,
+there is not enough data for a reliable number, so `POST /valuation` returns 404 with
+`{"status": "insufficient_data", "detail": "...", "comparable_count": 2, "minimum_required": 3}`
+instead of a valuation. The same 404 shape (with `comparable_count` 0) is used when nothing
+matches the subject.
 
 ## Try it
 

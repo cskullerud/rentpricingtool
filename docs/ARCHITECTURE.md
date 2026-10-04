@@ -45,8 +45,9 @@ GET /stats, GET /history  ->  routers/stats.py, routers/history.py  ->  Valuatio
 ```
 app/
   main.py                 App creation and the GET / health endpoint
-  config.py               APP_NAME, VERSION, ENVIRONMENT, DATABASE_PATH (from environment
-                          variables) and the default subject coordinate
+  config.py               APP_NAME, VERSION, ENVIRONMENT, DATABASE_PATH,
+                          MIN_COMPARABLES_REQUIRED (from environment variables) and the
+                          default subject coordinate
   schemas.py              Pydantic request/response models
   routers/
     valuation.py          POST /valuation
@@ -113,9 +114,11 @@ their own.
    | Bathrooms | within +/- tolerance of the subject | 1 bathroom |
    | Square feet | within +/- a fraction of the subject's sqft | 20% (inclusive) |
 
-3. **Extract** the rents of what remains. If none remain, raise `NoComparablesError`.
+3. **Extract** the rents of what remains.
 4. **Remove outliers** with the IQR rule: drop rents below `Q1 - 1.5 x IQR` or above
-   `Q3 + 1.5 x IQR`. With fewer than 4 values nothing is removed.
+   `Q3 + 1.5 x IQR`. With fewer than 4 values nothing is removed. Then **check the
+   minimum**: if fewer than `MIN_COMPARABLES_REQUIRED` (default 3) rents remain, raise
+   `InsufficientDataError` instead of pricing (see Minimum comparables below).
 5. **Calculate** the 25th, 50th and 75th percentiles (linear interpolation between ranks)
    and the average.
 6. **Return** the result, with figures rounded to whole dollars:
@@ -204,8 +207,8 @@ MockGeocoder            (fixed table of 13 addresses, no network)
   geocode fine but valuing them returns 404 "no comparable properties". That is the mock
   data's limit, not a geocoding problem.
 - **Errors over the API.** An address that can't be geocoded returns **404** with the
-  geocoder's message; a successful geocode that finds no comparables also returns 404, with
-  a different message.
+  geocoder's message; a successful geocode that leaves too few comparables also returns 404,
+  with the insufficient-data body described under Minimum comparables.
 - **Stored history.** The database keeps the latitude and longitude *as the request gave
   them*, so they are NULL for a geocoded request; the geocoded point is not stored.
 
@@ -275,7 +278,7 @@ Valuation history is kept in a single SQLite file using Python's built-in `sqlit
   `count_valuations()`, plus `database_path` and `database_size_bytes()` for `/stats`.
   Database errors surface as `PersistenceError`.
 - **When results are saved.** `run_valuation()` saves each *successful* valuation when it is
-  given a repository; the router injects one. Valuations that find no comparables are not
+  given a repository; the router injects one. Valuations with insufficient data are not
   saved. Saving is best effort: if the database is unavailable the error is logged and the
   valuation is still returned, so a database problem never breaks pricing. `/stats` and
   `/history` answer 503 in that case.
@@ -340,8 +343,31 @@ Two stub modules mark where the next providers go. They contain TODO notes only.
 | Status | When |
 |---|---|
 | 200 | A valuation was produced |
-| 404 | The address could not be geocoded (and no coordinates were given), or no comparable properties matched the subject after filtering. The `detail` message says which. |
+| 404 | The address could not be geocoded (and no coordinates were given), or fewer than the minimum number of comparables remained (an `insufficient_data` body, below). The `detail` message says which. |
 | 422 | The request body is missing fields or has the wrong types (FastAPI/Pydantic) |
+
+### Minimum comparables
+
+A valuation built on one or two listings is not a meaningful statistic, so the engine
+refuses to produce one. After the filters **and** outlier removal, if fewer than
+`MIN_COMPARABLES_REQUIRED` comparables remain (default **3**, set from the environment, at
+least 1), `run_valuation()` raises `InsufficientDataError` and the API answers 404 with:
+
+```json
+{
+  "status": "insufficient_data",
+  "detail": "Only 2 comparable properties remained after filtering; at least 3 are required for a valuation.",
+  "comparable_count": 2,
+  "minimum_required": 3
+}
+```
+
+`comparable_count` can be 0, in which case `detail` is "No comparable properties found for
+this property." No valuation fields are present, and the result is not saved. A successful
+valuation has no `status` field. The status stays 404 (as "no comparables" always was) so
+existing clients keep working; clients should read `status` to tell the cases apart.
+`InsufficientDataError` subclasses `NoComparablesError`. `run_valuation(...,
+min_comparables=n)` overrides the default per call, which tests use.
 
 `ValuationResponse` also has an optional `confidence` field. The engine does not compute
 it yet, so it is `None` and is left out of responses (`response_model_exclude_none`).
@@ -397,7 +423,8 @@ Because the data and the algorithm are deterministic, tests assert exact values.
   touches a dataset directly, so a real data source can replace the mock without changing
   the engine. The source is injected, not constructed inside the engine.
 - **Errors as exceptions in the domain, status codes at the edge.** The engine raises
-  `NoComparablesError`; only the router decides that means HTTP 404.
+  `NoComparablesError` (or its subclass `InsufficientDataError`); only the router decides
+  that means HTTP 404.
 - **No new dependencies for the math.** Statistics are implemented with the standard
   library so results are reproducible and the dependency list stays small.
 

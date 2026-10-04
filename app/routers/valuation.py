@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.persistence.repositories import ValuationRepository, get_repository
 from app.schemas import ValuationRequest, ValuationResponse
 from app.services.data_sources import ComparableDataSource, get_provider
 from app.services.geocoding import AddressNotFoundError, Geocoder, MockGeocoder
-from app.services.valuation_engine import NoComparablesError, run_valuation
+from app.services.valuation_engine import InsufficientDataError, NoComparablesError, run_valuation
 
 router = APIRouter()
 
@@ -28,6 +29,9 @@ def create_valuation(
 ) -> ValuationResponse:
     try:
         result = run_valuation(request, source, repository, geocoder)
+    except InsufficientDataError as exc:
+        # Still 404, as "no comparables" always was; the body says how many were found.
+        return JSONResponse(status_code=404, content=exc.to_response())
     except (AddressNotFoundError, NoComparablesError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ValuationResponse(**result)
