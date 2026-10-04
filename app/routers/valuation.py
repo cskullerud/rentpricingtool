@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.persistence.repositories import ValuationRepository, get_repository
 from app.schemas import ValuationRequest, ValuationResponse
-from app.services.data_sources import ComparableDataSource, MockComparableSource
+from app.services.data_sources import ComparableDataSource, get_provider
 from app.services.geocoding import AddressNotFoundError, Geocoder, MockGeocoder
 from app.services.valuation_engine import NoComparablesError, run_valuation
 
@@ -10,8 +10,8 @@ router = APIRouter()
 
 
 def get_comparable_source() -> ComparableDataSource:
-    """Choose the data source. This is the one place that names a concrete provider."""
-    return MockComparableSource()
+    """Choose the data source. Delegates to the provider registry (DATA_PROVIDER, default MOCK)."""
+    return get_provider()
 
 
 def get_geocoder() -> Geocoder:

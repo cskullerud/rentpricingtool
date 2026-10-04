@@ -67,8 +67,10 @@ app/
     data_sources/
       base.py             Comparable type and the ComparableDataSource interface
       mock_source.py      MockComparableSource and the 26-record mock dataset
-      future_rentcast.py  Stub: planned RentCast provider (TODO comments only)
-      future_csv.py       Stub: planned CSV provider (TODO comments only)
+      rentcast_source.py  RentCastComparableSource placeholder (raises NotImplementedError)
+      csv_source.py       CsvComparableSource placeholder (raises NotImplementedError)
+      provider_config.py  ProviderType and get_provider_type() (reads DATA_PROVIDER on each call)
+      provider_registry.py  get_provider(): builds the source for the configured provider
 tests/                    pytest suite (API, services)
 docs/                     Documentation
 scripts/                  Helper scripts (empty)
@@ -285,8 +287,8 @@ Two stub modules mark where the next providers go. They contain TODO notes only.
 
 | Provider | Stub | Notes |
 |---|---|---|
-| RentCast | `data_sources/future_rentcast.py` | Fetch listings from the RentCast API and map them to `Comparable`. Needs an API key from the environment. Listings carry coordinates, so they map straight to `latitude` and `longitude`. |
-| CSV | `data_sources/future_csv.py` | Load comparables from a CSV file (for example under `data/`), validating each row. |
+| RentCast | `data_sources/rentcast_source.py` | Fetch listings from the RentCast API and map them to `Comparable`. Needs an API key from the environment. Listings carry coordinates, so they map straight to `latitude` and `longitude`. |
+| CSV | `data_sources/csv_source.py` | Load comparables from a CSV file (for example under `data/`), validating each row. |
 | Other | | Anything that can produce `Comparable` records: a database, another listings API, or a combination of providers. |
 
 ## API
