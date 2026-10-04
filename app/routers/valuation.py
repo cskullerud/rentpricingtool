@@ -1,17 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.schemas import ValuationRequest, ValuationResponse
+from app.services.valuation_engine import NoComparablesError, run_valuation
 
 router = APIRouter()
 
 
-@router.post("/valuation", response_model=ValuationResponse)
+@router.post("/valuation", response_model=ValuationResponse, response_model_exclude_none=True)
 def create_valuation(request: ValuationRequest) -> ValuationResponse:
-    # Mocked result: real comps and pricing logic come later.
-    return ValuationResponse(
-        recommended_rent=2500,
-        p25=2300,
-        median=2500,
-        p75=2700,
-        confidence=85,
-    )
+    try:
+        result = run_valuation(request)
+    except NoComparablesError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ValuationResponse(**result)

@@ -9,8 +9,11 @@ class ValuationRequest(BaseModel):
 
 
 class ValuationResponse(BaseModel):
+    comparable_count: int
     recommended_rent: int
     p25: int
     median: int
     p75: int
-    confidence: int
+    average: int
+    # Not produced by the engine yet; omitted from responses until it is.
+    confidence: int | None = None

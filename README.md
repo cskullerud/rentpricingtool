@@ -1,23 +1,23 @@
 # Rent Pricing Tool
 
-Minimal FastAPI service that returns a rent valuation for a property. The valuation is
-currently **mocked**; real pricing logic comes later.
+Minimal FastAPI service that returns a rent valuation for a property. Valuations are
+computed from a **mock comparable-property dataset**; real data sources come later.
 
 ## Project Status
 
-**Phase 1 - Scaffold Complete**
+**Phase 2 - Valuation Engine (mock comparables) Complete**
 
 ### Current Features
 
 - FastAPI API
 - Swagger docs
-- Mock valuation endpoint
+- Valuation engine: filters comparables (distance, bedrooms, bathrooms, sqft), removes
+  rent outliers (IQR), and reports percentiles and average
+- `POST /valuation` backed by the engine, using mock comparable data
 - Automated tests
 
 ### Roadmap
 
-- Real valuation engine
-- Comparable filtering
 - RentCast integration
 - Geocoding
 - Persistence layer
@@ -40,6 +40,16 @@ The API is then at http://127.0.0.1:8000, with interactive Swagger docs at http:
 Optional settings (`APP_NAME`, `VERSION`, `ENVIRONMENT`) are read from environment variables;
 copy `.env.example` to `.env` and add `--env-file .env` to the `uvicorn` command to use them.
 
+## How a valuation works
+
+1. Load the mock comparables.
+2. Keep those within 1 mile, +/- 1 bedroom, +/- 1 bathroom and +/- 20% sqft of the subject.
+3. Drop rent outliers (below Q1 - 1.5 x IQR or above Q3 + 1.5 x IQR).
+4. Report p25, median, p75 and average of what remains. `recommended_rent` is the median,
+   and `comparable_count` is the number of comparables used after outlier removal.
+
+If nothing matches the subject, `POST /valuation` returns 404.
+
 ## Try it
 
 ```bash
@@ -49,7 +59,7 @@ curl http://127.0.0.1:8000/
 curl -X POST http://127.0.0.1:8000/valuation \
   -H "Content-Type: application/json" \
   -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}'
-# {"recommended_rent":2500,"p25":2300,"median":2500,"p75":2700,"confidence":85}
+# {"comparable_count":16,"recommended_rent":2512,"p25":2419,"median":2512,"p75":2606,"average":2505}
 ```
 
 ## Test
@@ -61,7 +71,8 @@ pytest
 ## Layout
 
 ```
-app/            FastAPI app: main.py, config.py, schemas.py, routers/valuation.py
+app/            FastAPI app: main.py, config.py, schemas.py, routers/valuation.py,
+                services/ (statistics, comparables, valuation_engine)
 tests/          pytest tests
 docs/           documentation
 scripts/        helper scripts
