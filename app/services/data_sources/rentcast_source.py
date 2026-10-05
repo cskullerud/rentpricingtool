@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Protocol
 
 from app.services.data_sources.base import (
@@ -16,7 +17,9 @@ from app.services.data_sources.base import (
     DataSourceError,
     SubjectProperty,
 )
+from app.services.geo import nearest_distance_miles
 from app.services.data_sources.provider_config import ProviderConfigurationError
+from app.services.search_options import PROPERTY_TYPES, format_miles, rentcast_property_type
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +72,9 @@ def _env_number(env: Mapping[str, str], name: str, default, kind, low, high):
 class RentCastSettings:
     api_key: str = field(repr=False)  # never shown in logs or reprs
     base_url: str = "https://api.rentcast.io"
-    radius_miles: float = 5.0  # RentCast allows at most 100
-    limit: int = 100  # listings per request; RentCast allows 1-500
+    # The search radius is not a setting: it is the radius the person chose (the same one the engine
+    # filters by), so the data source is asked for exactly what will be used.
+    limit: int = 500  # listings per request; RentCast allows 1-500
     timeout_seconds: float = 10.0
     cache_ttl_seconds: float = 86400.0  # 0 turns caching off
     max_retries: int = 1  # extra attempts after a 429, 5xx or network failure
@@ -90,7 +94,6 @@ class RentCastSettings:
         return cls(
             api_key=api_key,
             base_url=base_url.rstrip("/"),
-            radius_miles=_env_number(env, "RENTCAST_RADIUS_MILES", cls.radius_miles, float, 0.1, 100),
             limit=_env_number(env, "RENTCAST_LIMIT", cls.limit, int, 1, 500),
             timeout_seconds=_env_number(env, "RENTCAST_TIMEOUT_SECONDS", cls.timeout_seconds, float, 0.1, 120),
             cache_ttl_seconds=_env_number(env, "RENTCAST_CACHE_TTL_SECONDS", cls.cache_ttl_seconds, float, 0, 604800),
@@ -164,7 +167,25 @@ def _number(value) -> float | None:
     return float(value)
 
 
-def _to_comparable(listing) -> Comparable | None:
+def _days_on_market(listing: dict, now: datetime) -> int | None:
+    """How many days the listing has been on the market, from RentCast's `daysOnMarket`, or else
+    from its `listedDate`. None when neither is usable (the lookback window then keeps it)."""
+    days = _number(listing.get("daysOnMarket"))
+    if days is not None and days >= 0:
+        return int(days)
+    listed = listing.get("listedDate")
+    if isinstance(listed, str):
+        try:
+            when = datetime.fromisoformat(listed.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return max((now - when).days, 0)
+    return None
+
+
+def _to_comparable(listing, now: datetime | None = None) -> Comparable | None:
     """Map one RentCast listing to a Comparable, or None if any required field is missing."""
     if not isinstance(listing, dict):
         return None
@@ -191,6 +212,7 @@ def _to_comparable(listing) -> Comparable | None:
         "beds": int(bedrooms),
         "baths": bathrooms,
         "sqft": round(sqft),
+        "days_on_market": _days_on_market(listing, now or datetime.now(timezone.utc)),
     }
 
 
@@ -221,20 +243,30 @@ class RentCastComparableSource(ComparableDataSource):
         if subject is None:
             raise ValueError("RentCastComparableSource needs the subject's location")
         settings = self._settings
+        radius = subject.search_radius_miles  # miles: the same radius the engine filters by
+        if subject.property_type not in PROPERTY_TYPES:
+            raise ValueError(f"Unknown property type {subject.property_type!r}")
+        property_type = rentcast_property_type(subject.property_type)  # None means no filter
         query = {
             "latitude": f"{subject.latitude:.5f}",
             "longitude": f"{subject.longitude:.5f}",
-            "radius": f"{settings.radius_miles:g}",
+            "radius": f"{radius:g}",
             "limit": str(settings.limit),
             "status": "Active",
         }
-        # Locations about 100 m apart share an entry; the key has no API key in it.
+        if property_type is not None:
+            query["propertyType"] = property_type
+        # The lookback window is applied afterwards, from each listing's age, so changing it never
+        # needs a new request (RentCast's own `daysOld` filter takes ranges whose syntax is not
+        # documented clearly enough to rely on). Locations about 100 m apart share an entry; the key
+        # has no API key in it.
         key = (
             settings.base_url,
             round(subject.latitude, 3),
             round(subject.longitude, 3),
-            settings.radius_miles,
+            radius,
             settings.limit,
+            property_type or "",
         )
         if self._cache is None:
             self._cache = _default_cache()
@@ -247,9 +279,18 @@ class RentCastComparableSource(ComparableDataSource):
         headers = {"X-Api-Key": settings.api_key, "Accept": "application/json"}
         started = time.monotonic()
         listings = self._fetch(url, headers)
-        logger.info("RentCast: %d listings in %.0f ms", len(listings), (time.monotonic() - started) * 1000)
+        elapsed_ms = (time.monotonic() - started) * 1000
 
-        comparables = [c for c in map(_to_comparable, listings) if c is not None]
+        now = datetime.now(timezone.utc)
+        comparables = [c for c in (_to_comparable(listing, now) for listing in listings) if c is not None]
+        nearest = nearest_distance_miles(subject.latitude, subject.longitude, comparables)
+        logger.info(
+            "RentCast: %d listings in %.0f ms (radius %s, limit %d, nearest %s)",
+            len(listings), elapsed_ms, format_miles(radius), settings.limit,
+            "none" if nearest is None else f"{nearest:.2f} miles",
+        )
+        if len(listings) >= settings.limit:
+            logger.warning("RentCast response reached limit (%d); nearby listings may be missing.", settings.limit)
         skipped = len(listings) - len(comparables)
         if skipped:
             logger.warning("RentCast: skipped %d of %d listings with missing fields", skipped, len(listings))

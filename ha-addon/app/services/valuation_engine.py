@@ -23,10 +23,17 @@ class InsufficientDataError(NoComparablesError):
     handle this. `comparable_count` can be 0.
     """
 
-    def __init__(self, comparable_count: int, minimum_required: int, funnel: quality.Funnel | None = None):
+    def __init__(
+        self,
+        comparable_count: int,
+        minimum_required: int,
+        funnel: quality.Funnel | None = None,
+        search: dict | None = None,
+    ):
         self.comparable_count = comparable_count
         self.minimum_required = minimum_required
         self.funnel = funnel
+        self.search = search  # the search criteria used (radius, lookback, ...), when known
         if comparable_count == 0:
             message = "No comparable properties found for this property."
         else:
@@ -47,6 +54,8 @@ class InsufficientDataError(NoComparablesError):
         }
         if self.funnel is not None:
             body["funnel"] = self.funnel.as_dict()
+        if self.search is not None:
+            body["search"] = self.search
         return body
 
 
@@ -59,27 +68,37 @@ def _locate_subject(subject: ValuationRequest, geocoder: Geocoder | None) -> tup
     return DEFAULT_SUBJECT_LATITUDE, DEFAULT_SUBJECT_LONGITUDE
 
 
-def _log_funnel(funnel: quality.Funnel, confidence: str | None, status: str, minimum: int) -> None:
+def _log_funnel(
+    funnel: quality.Funnel, confidence: str | None, status: str, minimum: int, search: dict
+) -> None:
     """One structured line per valuation: key=value text, plus the same fields as log-record
-    attributes (record.funnel, record.confidence, ...) for JSON or other structured handlers.
-    No address or other request detail is logged."""
+    attributes (record.funnel, record.confidence, record.search, ...) for JSON or other structured
+    handlers. Distances are miles. No address or other request detail is logged."""
     fields = funnel.as_dict()
+    nearest = search["nearest_listing_miles"]
     logger.info(
-        "valuation_funnel status=%s fetched=%d after_distance=%d after_attributes=%d "
-        "after_outliers=%d used=%d minimum=%d confidence=%s",
+        "valuation_funnel status=%s fetched=%d after_lookback=%d after_distance=%d after_attributes=%d "
+        "after_outliers=%d used=%d minimum=%d confidence=%s radius_miles=%g lookback_days=%d "
+        "nearest_miles=%s sqft=%s",
         status,
         fields["comparables_fetched"],
+        fields["comparables_after_lookback_filter"],
         fields["comparables_after_distance_filter"],
         fields["comparables_after_attribute_filter"],
         fields["comparables_after_outlier_filter"],
         fields["comparables_used"],
         minimum,
         confidence or "none",
+        search["radius_miles"],
+        search["lookback_days"],
+        "none" if nearest is None else f"{nearest:.2f}",
+        "given" if search["sqft_used"] else "not_given",
         extra={
             "valuation_status": status,
             "funnel": fields,
             "minimum_required": minimum,
             "confidence": confidence,
+            "search": search,
         },
     )
 
@@ -111,6 +130,12 @@ def run_valuation(
     If fewer than `min_comparables` (default: config.MIN_COMPARABLES_REQUIRED, 3) remain
     after the filters and the outlier removal, InsufficientDataError is raised instead of
     returning a valuation.
+
+    The search is the request's: listings from the last `lookback_days`, within
+    `search_radius_miles` (miles), with bedrooms and bathrooms within 1 and, when `sqft` is given,
+    size within 20%. Without `sqft` the size filter is skipped and confidence drops one level, with
+    a note saying so. The result carries the criteria used (`search`) and the closest listing the
+    source returned.
     """
     minimum = MIN_COMPARABLES_REQUIRED if min_comparables is None else min_comparables
     latitude, longitude = _locate_subject(subject, geocoder)
@@ -122,14 +147,24 @@ def run_valuation(
         beds=subject.beds,
         baths=subject.baths,
         sqft=subject.sqft,
+        search_radius_miles=subject.search_radius_miles,
+        lookback_days=subject.lookback_days,
+        property_type=subject.property_type,
     )
     candidates = source.get_comparables(located)
     fetched = len(candidates)
-    candidates = comps.filter_by_distance(candidates, latitude, longitude)
+    nearest = comps.nearest_miles(candidates, latitude, longitude)  # closest listing the source returned
+    # Each stage keeps what survived the one before; a comparable is counted as removed by the first
+    # stage it fails. The search radius is the one the person chose, and the data source was asked for
+    # the same radius.
+    candidates = comps.filter_by_lookback(candidates, subject.lookback_days)
+    after_lookback = len(candidates)
+    candidates = comps.filter_by_distance(candidates, latitude, longitude, subject.search_radius_miles)
     after_distance = len(candidates)
     candidates = comps.filter_by_bedrooms(candidates, subject.beds)
     candidates = comps.filter_by_bathrooms(candidates, subject.baths)
-    candidates = comps.filter_by_sqft(candidates, subject.sqft)
+    if subject.sqft is not None:  # without square feet, listings are not matched on size
+        candidates = comps.filter_by_sqft(candidates, subject.sqft)
     after_attributes = len(candidates)
 
     rents = stats.remove_outliers([c["rent"] for c in candidates])
@@ -139,12 +174,29 @@ def run_valuation(
         comparables_after_attribute_filter=after_attributes,
         comparables_after_outlier_filter=len(rents),
         comparables_used=len(rents),
+        comparables_after_lookback_filter=after_lookback,
     )
+    search = {
+        "radius_miles": subject.search_radius_miles,
+        "distance_units": "miles",
+        "lookback_days": subject.lookback_days,
+        "property_type": subject.property_type,
+        "sqft_used": subject.sqft is not None,
+        "minimum_comparables": minimum,
+        "nearest_listing_miles": None if nearest is None else round(nearest, 2),
+    }
     if len(rents) < minimum:
-        _log_funnel(funnel, confidence=None, status="insufficient_data", minimum=minimum)
-        raise InsufficientDataError(len(rents), minimum, funnel)
+        _log_funnel(funnel, confidence=None, status="insufficient_data", minimum=minimum, search=search)
+        raise InsufficientDataError(len(rents), minimum, funnel, search)
     percentiles = stats.calculate_percentiles(rents)
     median = round(percentiles["median"])
+    confidence = quality.confidence_for(funnel.comparables_used)
+    confidence_notes = []
+    if subject.sqft is None:
+        confidence = quality.lower_confidence(confidence)
+        confidence_notes.append(
+            "Square feet were not given, so listings were not matched on size and confidence was lowered one level."
+        )
     result = {
         "comparable_count": len(rents),
         "p25": round(percentiles["p25"]),
@@ -152,10 +204,12 @@ def run_valuation(
         "p75": round(percentiles["p75"]),
         "average": round(stats.calculate_average(rents)),
         "recommended_rent": median,
-        "confidence": quality.confidence_for(funnel.comparables_used),
+        "confidence": confidence,
+        "confidence_notes": confidence_notes,
+        "search": search,
         "funnel": funnel.as_dict(),
     }
-    _log_funnel(funnel, confidence=result["confidence"], status="ok", minimum=minimum)
+    _log_funnel(funnel, confidence=confidence, status="ok", minimum=minimum, search=search)
     if repository is not None:
         try:
             repository.save_valuation_request(subject, result)

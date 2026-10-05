@@ -43,6 +43,35 @@ app and over remote access, because it is served through Home Assistant itself.
 
 Save the options and **restart** the app for changes to take effect.
 
+### Search controls
+
+The form has three controls beside the property details. They are what the valuation searches by,
+and the **Search criteria** panel above the Get valuation button always shows the current choices
+and every rule behind them (nothing is hidden).
+
+| Control | Choices | Default |
+|---|---|---|
+| Search radius (miles) | 0.5, 1, 2, 3, 5 miles | 1 mile |
+| Lookback window (days) | 30, 90, 180, 365 days | 90 days |
+| Building type | All, Home (single-family), Condo, Apartment | All |
+
+- **Search radius.** RentCast is asked for listings within this radius, and listings farther away
+  are dropped. A larger radius finds more listings but they are less alike. If a search finds too
+  few, the page tells you how far away the nearest listing is.
+- **Lookback window.** Listings that have been on the market longer than this are ignored (a listing
+  with no known age is kept). It is applied to the listings already fetched, so changing it never
+  costs another RentCast request. It does not apply to the built-in sample data.
+- **Building type.** Sent to RentCast as its property-type filter ("Home" is RentCast's "Single
+  Family"). Townhouse, manufactured and multi-family homes are included only with "All".
+- **Square feet are optional.** Leave them blank and listings are not matched on size, and the
+  confidence is lowered one level (and the result says so).
+- **Matching rules** (fixed): bedrooms within 1, bathrooms within 1, size within 20%. Rents that
+  are unusually high or low are removed when there are at least 4 comparables. At least 3
+  comparables are needed for a valuation.
+- **Result size.** RentCast returns up to 500 listings, most recently seen first. If the Log tab
+  says `RentCast response reached limit (500)`, nearby listings may be missing: choose a smaller
+  radius.
+
 ### Address lookup
 
 With `census`, type a US address with its city, state and ZIP code, for example
@@ -83,7 +112,7 @@ latitude and longitude to skip the lookup).
 3. The badge at the top right now reads **RENTCAST**, and a note under the button says live data
    is on.
 
-**Cost.** Each valuation for a new area uses one request from your RentCast plan. Results are
+**Cost.** Each valuation for a new area (a new location, radius or building type) uses one request from your RentCast plan. Results are
 cached for 24 hours in the app's database, so repeating the same area is free, even after a
 restart. Nothing calls RentCast until you submit the form, and the default is `mock`.
 

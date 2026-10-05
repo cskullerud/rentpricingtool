@@ -6,6 +6,7 @@
       Found <strong>{{ insufficient.comparable_count }}</strong> after filtering;
       at least <strong>{{ insufficient.minimum_required }}</strong> are needed for a reliable valuation.
     </p>
+    {% if insufficient.search_line %}<p class="small text-body-secondary mb-2" id="search-used">Search used: {{ insufficient.search_line }}</p>{% endif %}
     {% if insufficient.explanation %}<p class="mb-3" id="insufficient-explanation">{{ insufficient.explanation }}</p>{% endif %}
     {% if insufficient.funnel_rows %}
     <h3 class="h6">How the comparables were narrowed down</h3>

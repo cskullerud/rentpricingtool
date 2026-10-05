@@ -1,0 +1,18 @@
+{# summary_rows: [{key, label, value, note?, with_value?, without_value?}]. Every setting and rule that
+   affects a valuation, so none is hidden. The page script keeps the rows for the editable fields up to
+   date as the form changes; this is also the complete, correct text when scripts are off. #}
+<section class="card border-secondary-subtle mb-1" id="search-summary" aria-labelledby="search-summary-heading">
+  <div class="card-body py-3">
+    <h2 class="h6 mb-1" id="search-summary-heading">Search criteria</h2>
+    <p class="small text-body-secondary mb-2">Everything that affects this valuation. All distances are in miles.</p>
+    <dl class="row gy-1 mb-0 small">
+      {% for row in summary_rows %}
+      <dt class="col-12 col-sm-4 fw-semibold">{{ row.label }}</dt>
+      <dd class="col-12 col-sm-8 mb-2 mb-sm-0" data-summary-row="{{ row.key }}">
+        <span id="summary-{{ row.key }}"{% if row.with_value %} data-with="{{ row.with_value }}" data-without="{{ row.without_value }}"{% endif %}>{{ row.value }}</span>{% if row.note %}
+        <span class="d-block text-body-secondary">{{ row.note }}</span>{% endif %}
+      </dd>
+      {% endfor %}
+    </dl>
+  </div>
+</section>

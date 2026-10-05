@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class Comparable(TypedDict):
@@ -11,6 +11,9 @@ class Comparable(TypedDict):
     beds: int
     baths: float
     sqft: int
+    # Days since the listing went on the market. Absent or None when the source does not know
+    # (the sample data); such a comparable is not excluded by the lookback window.
+    days_on_market: NotRequired[int | None]
 
 
 @dataclass(frozen=True)
@@ -26,7 +29,12 @@ class SubjectProperty:
     longitude: float  # decimal degrees
     beds: int
     baths: float
-    sqft: int
+    sqft: int | None  # None when not given
+    # The search the person asked for. A provider that queries by location uses these; the
+    # engine still applies the same radius, lookback and matching rules itself.
+    search_radius_miles: float = 1.0
+    lookback_days: int = 90
+    property_type: str = "all"  # all, home, condo or apartment
 
 
 class DataSourceError(Exception):

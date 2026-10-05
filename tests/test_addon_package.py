@@ -107,10 +107,10 @@ def test_changelog_matches_the_version():
     assert changelog.index(f"## {CONFIG['version']}") < changelog.index("## 0.1.1")  # newest first
 
 
-def test_the_version_is_0_2_0_and_matches_the_app():
+def test_the_version_is_0_3_0_and_matches_the_app():
     from app.config import VERSION
 
-    assert CONFIG["version"] == "0.2.0"
+    assert CONFIG["version"] == "0.3.0"
     if not os.getenv("VERSION"):  # the app default; an environment override would legitimately differ
         assert VERSION == CONFIG["version"]
 
@@ -828,3 +828,58 @@ def test_docs_describe_the_address_lookup():
     for needle in ("Address lookup", "Census", "never uses a RentCast request", "Geocoder: census",
                    "geocode result=match cache=hit", "Apartment, unit, suite", "street-range interpolation"):
         assert needle in docs, needle
+
+
+# --- search controls (0.3.0) ---------------------------------------------------------------------------------
+
+def test_the_bundle_ships_the_search_control_files():
+    for relative in ("services/search_options.py", "templates/partials/_search_summary.html", "ui/viewmodels.py"):
+        assert (ADDON / "app" / relative).is_file(), relative
+
+
+def test_the_search_choices_are_request_fields_not_app_options():
+    """Radius, lookback and building type are chosen per valuation on the form, so the app has no
+    option for them (and no RentCast radius setting)."""
+    for name in ("radius", "lookback", "property", "building", "limit"):
+        assert not any(name in key for key in CONFIG["schema"]), name
+    assert "RENTCAST_RADIUS_MILES" not in (ADDON / "entrypoint.py").read_text()
+    assert "RENTCAST_RADIUS_MILES" not in (ADDON / "DOCS.md").read_text()
+
+
+def test_the_entrypoint_environment_has_no_radius_setting(data_dir):
+    env = entry.build_environment({"data_provider": "mock"}, data_dir)
+    assert not any("RADIUS" in key or "LOOKBACK" in key for key in env)
+
+
+def test_the_changelog_describes_the_search_changes():
+    newest = " ".join((ADDON / "CHANGELOG.md").read_text().split("## 0.2.0")[0].split())  # markdown wraps lines
+    for needle in ("Search radius", "Lookback window", "Building type", "miles", "500", "Square feet are optional",
+                   "Search criteria", "reaches the limit", "RENTCAST_RADIUS_MILES"):
+        assert needle in newest, needle
+
+
+def test_docs_describe_the_search_controls():
+    docs = " ".join((ADDON / "DOCS.md").read_text().split())  # markdown wraps lines
+    for needle in ("### Search controls", "Search radius (miles)", "Lookback window (days)", "Building type",
+                   "0.5, 1, 2, 3, 5 miles", "never costs another RentCast request", "reached limit (500)",
+                   "Square feet are optional", "Search criteria", "property-type filter", "Matching rules"):
+        assert needle in docs, needle
+
+
+def test_the_docs_say_a_new_radius_or_building_type_costs_a_request():
+    assert "a new location, radius or building type" in " ".join((ADDON / "DOCS.md").read_text().split())
+
+
+def test_the_bundle_still_serves_the_form_with_the_new_controls(tmp_path):
+    code = """
+        from fastapi.testclient import TestClient
+        import app.main as main
+        html = TestClient(main.app).get("/ui/").text
+        print(all(x in html for x in ('id="search_radius_miles"', 'id="lookback_days"', 'id="property_type"', 'id="search-summary"')))
+        print("Square feet (optional)" in html)
+    """
+    env = {**os.environ, "DATABASE_PATH": str(tmp_path / "t.db"), "PYTHONDONTWRITEBYTECODE": "1"}
+    env.pop("ALLOWED_PEERS", None)
+    result = subprocess.run([sys.executable, "-c", textwrap.dedent(code)], cwd=ADDON, env=env, capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split()[-2:] == ["True", "True"]

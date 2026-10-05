@@ -58,6 +58,11 @@ def geocoder_info() -> dict:
 
 
 templates.env.filters["money"] = viewmodels.money
+templates.env.globals.update(
+    radius_options=viewmodels.radius_options(),
+    lookback_options=viewmodels.lookback_options(),
+    property_type_options=viewmodels.property_type_options(),
+)
 
 
 def render(request: Request, template: str, active: str, status_code: int = 200, **context) -> HTMLResponse:

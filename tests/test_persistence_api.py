@@ -29,7 +29,12 @@ def test_valuation_response_format():
         "funnel": {
             "comparables_fetched": 26, "comparables_after_distance_filter": 24,
             "comparables_after_attribute_filter": 18, "comparables_after_outlier_filter": 16,
-            "comparables_used": 16,
+            "comparables_used": 16, "comparables_after_lookback_filter": 26,
+        },
+        "confidence_notes": [],
+        "search": {
+            "radius_miles": 1.0, "distance_units": "miles", "lookback_days": 90, "property_type": "all",
+            "sqft_used": True, "minimum_comparables": 3, "nearest_listing_miles": 0.2,
         },
     }
 

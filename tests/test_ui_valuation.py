@@ -221,6 +221,7 @@ def test_funnel_shows_every_stage_with_its_count(client):
     html = submit(client, ListSource(mixed())).text
     assert funnel_of(html) == [
         ("Fetched from the data source", 13),
+        ("Listed within the last 90 days", 13),  # the test comparables have no listing age, so all pass
         ("Within 1 mile of the property", 9),
         ("Similar bedrooms, bathrooms and size", 6),
         ("After removing unusual rents", 5),
@@ -235,8 +236,8 @@ def test_funnel_shows_what_was_lost_at_each_stage(client):
 
 def test_funnel_bars_are_percentages_of_what_was_fetched(client):
     html = submit(client, ListSource(mixed())).text
-    assert re.findall(r'class="progress-bar" style="width: (\d+)%"', html) == ["100", "69", "46", "38", "38"]
-    assert re.findall(r'aria-valuenow="(\d+)"', html) == ["100", "69", "46", "38", "38"]
+    assert re.findall(r'class="progress-bar" style="width: (\d+)%"', html) == ["100", "100", "69", "46", "38", "38"]
+    assert re.findall(r'aria-valuenow="(\d+)"', html) == ["100", "100", "69", "46", "38", "38"]
     assert 'role="progressbar"' in html
 
 
@@ -264,7 +265,7 @@ def test_insufficient_data_shows_the_funnel_and_an_explanation(client):
     source = ListSource([comp(2000), comp(2100)] + [comp(3000, latitude=40.7, longitude=-74.0)] * 4)
     html = submit(client, source).text
     assert funnel_of(html) == [
-        ("Fetched from the data source", 6), ("Within 1 mile of the property", 2),
+        ("Fetched from the data source", 6), ("Listed within the last 90 days", 6), ("Within 1 mile of the property", 2),
         ("Similar bedrooms, bathrooms and size", 2), ("After removing unusual rents", 2), ("Used for pricing", 2),
     ]
     assert "Only 2 of 6 listings are within 1 mile" in text_of(html, "insufficient-explanation")

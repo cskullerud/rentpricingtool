@@ -149,7 +149,12 @@ def test_api_returns_a_valuation_at_the_minimum():
         "funnel": {
             "comparables_fetched": 3, "comparables_after_distance_filter": 3,
             "comparables_after_attribute_filter": 3, "comparables_after_outlier_filter": 3,
-            "comparables_used": 3,
+            "comparables_used": 3, "comparables_after_lookback_filter": 3,
+        },
+        "confidence_notes": [],
+        "search": {
+            "radius_miles": 1.0, "distance_units": "miles", "lookback_days": 90, "property_type": "all",
+            "sqft_used": True, "minimum_comparables": 3, "nearest_listing_miles": 0.0,
         },
     }
 

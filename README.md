@@ -75,7 +75,10 @@ Open `http://127.0.0.1:8000/ui/`. The UI lives under `/ui`; the JSON API (`/`, `
 ## How a valuation works
 
 1. Get comparables from the data source (currently a mock dataset).
-2. Keep those within 1 mile, +/- 1 bedroom, +/- 1 bathroom and +/- 20% sqft of the subject.
+2. Keep those listed within the lookback window (default 90 days), within the search radius
+   (default 1 mile; 0.5, 1, 2, 3 or 5 miles), and +/- 1 bedroom, +/- 1 bathroom and +/- 20% sqft of
+   the subject. Square feet are optional: without them listings are not matched on size and
+   confidence is lowered one level. The form shows all of these rules in a "Search criteria" panel.
 3. Drop rent outliers (below Q1 - 1.5 x IQR or above Q3 + 1.5 x IQR).
 4. Report p25, median, p75 and average of what remains. `recommended_rent` is the median,
    and `comparable_count` is the number of comparables used after outlier removal.
@@ -101,7 +104,16 @@ curl -X POST http://127.0.0.1:8000/valuation \
   -d '{"address": "123 Main St", "beds": 3, "baths": 2, "sqft": 1400}'
 # {"comparable_count":16,"recommended_rent":2512,"p25":2419,"median":2512,"p75":2606,"average":2505,
 #  "confidence":"high","funnel":{"comparables_fetched":26,"comparables_after_distance_filter":24,
-#  "comparables_after_attribute_filter":18,"comparables_after_outlier_filter":16,"comparables_used":16}}
+#  "comparables_after_attribute_filter":18,"comparables_after_outlier_filter":16,"comparables_used":16,
+#  "comparables_after_lookback_filter":26},"confidence_notes":[],
+#  "search":{"radius_miles":1.0,"distance_units":"miles","lookback_days":90,"property_type":"all",
+#  "sqft_used":true,"minimum_comparables":3,"nearest_listing_miles":0.2}}
+
+# Optional search controls (all have defaults): radius in miles, lookback in days, building type,
+# and sqft may be left out (the size filter is then skipped and confidence is lowered one level)
+curl -X POST http://127.0.0.1:8000/valuation \
+  -H "Content-Type: application/json" \
+  -d '{"address": "123 Main St", "beds": 3, "baths": 2, "search_radius_miles": 2, "lookback_days": 180, "property_type": "condo"}'
 
 # Or give the subject's coordinates (both values, or neither); the address is then not geocoded:
 curl -X POST http://127.0.0.1:8000/valuation \

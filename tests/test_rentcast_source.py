@@ -1,5 +1,6 @@
 import json
 import urllib.parse
+from dataclasses import replace
 
 import pytest
 
@@ -56,7 +57,7 @@ def test_maps_a_listing_to_a_comparable():
     comps = make(FakeTransport()).get_comparables(SUBJECT)
     assert comps == [{
         "address": "10 Oak St, La Mesa, CA 91942", "rent": 2450, "latitude": 32.77,
-        "longitude": -117.02, "beds": 3, "baths": 2.5, "sqft": 1350,
+        "longitude": -117.02, "beds": 3, "baths": 2.5, "sqft": 1350, "days_on_market": None,
     }]
 
 
@@ -98,7 +99,7 @@ def test_empty_result_is_an_empty_list():
 
 def test_request_url_headers_and_timeout():
     transport = FakeTransport()
-    make(transport, radius_miles=3, limit=50, timeout_seconds=7, base_url="https://example.test").get_comparables(SUBJECT)
+    make(transport, limit=50, timeout_seconds=7, base_url="https://example.test").get_comparables(replace(SUBJECT, search_radius_miles=3.0))
     url, headers, timeout = transport.calls[0]
     parsed = urllib.parse.urlparse(url)
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "https://example.test/v1/listings/rental/long-term"
@@ -206,16 +207,16 @@ def test_failures_are_not_cached():
 
 def test_settings_from_env_defaults():
     s = RentCastSettings.from_env({"RENTCAST_API_KEY": " k "})
-    assert (s.api_key, s.base_url, s.radius_miles, s.limit) == ("k", "https://api.rentcast.io", 5.0, 100)
+    assert (s.api_key, s.base_url, s.limit) == ("k", "https://api.rentcast.io", 500)
     assert (s.timeout_seconds, s.cache_ttl_seconds) == (10.0, 86400.0)
 
 
 def test_settings_from_env_overrides():
     s = RentCastSettings.from_env({
-        "RENTCAST_API_KEY": "k", "RENTCAST_BASE_URL": "https://x.test/", "RENTCAST_RADIUS_MILES": "2.5",
+        "RENTCAST_API_KEY": "k", "RENTCAST_BASE_URL": "https://x.test/",
         "RENTCAST_LIMIT": "25", "RENTCAST_TIMEOUT_SECONDS": "3", "RENTCAST_CACHE_TTL_SECONDS": "0",
     })
-    assert (s.base_url, s.radius_miles, s.limit, s.timeout_seconds, s.cache_ttl_seconds) == ("https://x.test", 2.5, 25, 3.0, 0.0)
+    assert (s.base_url, s.limit, s.timeout_seconds, s.cache_ttl_seconds) == ("https://x.test", 25, 3.0, 0.0)
 
 
 @pytest.mark.parametrize("env", [{}, {"RENTCAST_API_KEY": "  "}])
@@ -226,7 +227,7 @@ def test_missing_key_is_a_configuration_error(env):
 
 @pytest.mark.parametrize(
     "name, value",
-    [("RENTCAST_RADIUS_MILES", "abc"), ("RENTCAST_RADIUS_MILES", "500"), ("RENTCAST_LIMIT", "0"),
+    [("RENTCAST_LIMIT", "abc"), ("RENTCAST_LIMIT", "0"),
      ("RENTCAST_LIMIT", "501"), ("RENTCAST_LIMIT", "1.5"), ("RENTCAST_TIMEOUT_SECONDS", "0"),
      ("RENTCAST_CACHE_TTL_SECONDS", "-1")],
 )

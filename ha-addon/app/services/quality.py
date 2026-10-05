@@ -19,8 +19,9 @@ class Funnel:
     comparables_after_attribute_filter: int  # bedrooms, bathrooms and square footage
     comparables_after_outlier_filter: int
     comparables_used: int
+    comparables_after_lookback_filter: int | None = None  # listings within the lookback window
 
-    def as_dict(self) -> dict[str, int]:
+    def as_dict(self) -> dict[str, int | None]:
         return asdict(self)
 
 
@@ -31,3 +32,11 @@ def confidence_for(comparables_used: int) -> Confidence:
     if comparables_used >= MEDIUM_CONFIDENCE_MIN:
         return "medium"
     return "low"
+
+
+_LEVELS: tuple[Confidence, ...] = ("low", "medium", "high")
+
+
+def lower_confidence(level: Confidence) -> Confidence:
+    """One level down (high -> medium, medium -> low); low stays low."""
+    return _LEVELS[max(_LEVELS.index(level) - 1, 0)]

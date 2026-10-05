@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+- **Search controls on the form:** Search radius (0.5, 1, 2, 3 or 5 **miles**, default 1), Lookback
+  window (30, 90, 180 or 365 days, default 90) and Building type (All, Home, Condo, Apartment).
+- **The search radius is now the radius used to ask RentCast**, as well as the radius used to
+  filter listings. Before, RentCast was asked for 5 miles (and at most 100 listings, in its own
+  order, newest first) while only 1 mile was kept, so valuations could find "0 within 1 mile".
+  RentCast is now asked for up to 500 listings.
+- **Square feet are optional.** Without them the size filter is skipped and confidence is lowered
+  one level, with a note explaining why.
+- **Search criteria panel** above the Get valuation button lists every setting and rule that
+  affects a valuation (with units), and a one-line summary is shown with each result.
+- When nothing is close enough, the page says how far away the nearest listing is.
+- The Log tab shows the search radius, limit and nearest listing for each RentCast request, and
+  warns when a response reaches the limit (`RentCast response reached limit (500); nearby
+  listings may be missing.`).
+- The `RENTCAST_RADIUS_MILES` setting is gone (the radius is chosen per valuation).
+- Valuations ask RentCast for different data only when the radius or building type changes;
+  changing the lookback uses the same cached listings.
+
 ## 0.2.0
 
 - Address lookup: addresses are now turned into locations with the free US Census geocoder, so a

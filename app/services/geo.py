@@ -21,3 +21,11 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 def miles_between_points(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Great-circle distance between two points in miles."""
     return haversine_distance(lat1, lon1, lat2, lon2) / KM_PER_MILE
+
+
+def nearest_distance_miles(latitude: float, longitude: float, points) -> float | None:
+    """Miles from the point to the closest of `points` (each a mapping with "latitude" and
+    "longitude"), or None if there are none. Kept here, with no other app imports, so both the
+    comparable filters and the data sources can use it without importing each other."""
+    distances = [miles_between_points(latitude, longitude, p["latitude"], p["longitude"]) for p in points]
+    return min(distances) if distances else None

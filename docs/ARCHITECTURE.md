@@ -105,14 +105,19 @@ their own.
 
 1. **Locate the subject.** Use the request's coordinates if it has them; otherwise geocode
    its address. Then **get** the comparables from the injected `ComparableDataSource`.
-2. **Filter** to properties similar to the subject. All four filters must pass.
+2. **Filter** to properties similar to the subject. All filters must pass.
 
    | Filter | Rule | Default |
    |---|---|---|
-   | Distance | great-circle miles from the subject's coordinates `<= max`, calculated per comparable | 1.0 mile |
+   | Lookback | listed within the last N days; a listing with no known age is kept | 90 days (30, 90, 180 or 365) |
+   | Distance | great-circle **miles** from the subject's coordinates `<= radius`, calculated per comparable | 1 mile (0.5, 1, 2, 3 or 5) |
    | Bedrooms | within +/- tolerance of the subject | 1 bedroom |
    | Bathrooms | within +/- tolerance of the subject | 1 bathroom |
-   | Square feet | within +/- a fraction of the subject's sqft | 20% (inclusive) |
+   | Square feet | within +/- a fraction of the subject's sqft; **skipped when sqft is not given** | 20% (inclusive) |
+
+   The radius and the lookback window are part of the request (`search_radius_miles`,
+   `lookback_days`; see Search controls below). The sample data has no listing ages, so the
+   lookback keeps all of it.
 
 3. **Extract** the rents of what remains.
 4. **Remove outliers** with the IQR rule: drop rents below `Q1 - 1.5 x IQR` or above
@@ -145,17 +150,60 @@ their own.
 `recommended_rent` is the median. `comparable_count` is the number of comparables used for
 pricing, i.e. after both filtering and outlier removal.
 
+### Search controls and transparency
+
+A valuation's search is part of the request, with defaults that keep older requests working:
+
+| Field | Choices | Default |
+|---|---|---|
+| `search_radius_miles` | 0.5, 1, 2, 3, 5 (miles) | 1 |
+| `lookback_days` | 30, 90, 180, 365 | 90 |
+| `property_type` | `all`, `home`, `condo`, `apartment` | `all` |
+| `sqft` | optional | none |
+
+Anything else is rejected (HTTP 422). The options are defined once in `services/search_options.py`.
+
+- **One radius.** The radius the person chooses is both what the data source is asked for and what
+  the engine filters by. This fixes the mismatch behind "98 fetched, 0 within 1 mile": the
+  provider used to fetch 5 miles (capped at 100 listings, in RentCast's own order) while the
+  engine kept only 1 mile, so the nearest listings could be missing from the sample.
+- **Lookback.** Applied by the engine from each comparable's `days_on_market` (RentCast's
+  `daysOnMarket`, or the age worked out from `listedDate`). RentCast's own `daysOld` filter takes
+  ranges whose syntax the documentation does not spell out, so it is not used; a client-side
+  window is exact and means changing the lookback never needs a new request. The window is a
+  stage of the funnel (`comparables_after_lookback_filter`).
+- **Square feet are optional.** Without them the size filter is skipped (so more listings
+  qualify) and confidence is lowered one level (high to medium, medium to low, low stays low), with
+  a note in `confidence_notes`: it would be a hidden assumption otherwise.
+- **Building type.** RentCast's listings filter `propertyType` takes `Single Family`, `Condo`,
+  `Townhouse`, `Manufactured`, `Multi-Family` and `Apartment`. The choices offered are: All (no
+  filter), Home (RentCast's `Single Family`), Condo and Apartment. Townhouse, Manufactured and
+  Multi-Family exist in RentCast but are not offered; choose All to include them. The filter is
+  sent to RentCast, so it applies to RentCast data only; the sample data has no building types.
+- **Search transparency.** The response carries `search` (radius, `distance_units: "miles"`,
+  lookback, building type, whether square feet were used, the minimum number of comparables, and
+  the **nearest listing the source returned**) and `confidence_notes`. The `insufficient_data` body
+  carries `search` too, so the page can say, for example, "the nearest listing found is 1.84 miles
+  away, so try a larger search radius". The form shows a "Search criteria" panel above the Get
+  valuation button listing every setting and rule (radius and the unit, lookback, building
+  type, minimum comparables, the bedroom, bathroom and size rules, outlier handling, which listings
+  are considered, how rent and confidence are worked out, the address lookup), and it is repeated
+  in one line with each result.
+- **Not stored.** The history table has no columns for these settings and no migration path, so
+  they are shown with each result but not saved. A missing square footage is saved as empty.
+
 ### Quality diagnostics
 
 Every valuation reports how good its evidence is (`services/quality.py`):
 
 - **`funnel`** counts the comparables left after each stage: `comparables_fetched` (what the
-  source returned), `comparables_after_distance_filter`,
+  source returned), `comparables_after_lookback_filter`, `comparables_after_distance_filter`,
   `comparables_after_attribute_filter` (bedrooms, bathrooms and square footage together),
   `comparables_after_outlier_filter`, and `comparables_used` (what was priced; always equal
   to `comparable_count`). A comparable is counted as removed at the first stage it fails.
-  The funnel shows where listings were lost: for example, many fetched but few within a mile
-  means the provider's search radius is wider than the engine's distance filter.
+  The funnel shows where listings were lost: for example, many fetched but few within the
+  radius means the nearby listings are few (the `search.nearest_listing_miles` value says how far
+  the closest one is).
 - **`confidence`** is based on `comparables_used`: **low** below 5 (3-4 with the default
   minimum), **medium** 5-9, **high** 10 or more. It reflects how many comparables priced the
   result, not how tightly their rents cluster.
@@ -166,11 +214,11 @@ which is where it is most useful. Neither field is stored in the history table.
 Each valuation, successful or not, writes one log line from `valuation_engine`, for example:
 
 ```
-valuation_funnel status=ok fetched=26 after_distance=24 after_attributes=18 after_outliers=16 used=16 minimum=3 confidence=high
+valuation_funnel status=ok fetched=26 after_lookback=26 after_distance=24 after_attributes=18 after_outliers=16 used=16 minimum=3 confidence=high radius_miles=1 lookback_days=90 nearest_miles=0.20 sqft=given
 ```
 
 The same values are attached to the log record as attributes (`record.funnel`,
-`record.confidence`, `record.valuation_status`, `record.minimum_required`) for JSON or other
+`record.confidence`, `record.search`, `record.valuation_status`, `record.minimum_required`) for JSON or other
 structured handlers. The address and other request details are never logged. Requests that
 fail before comparables are fetched (such as an unknown address) log no funnel.
 
@@ -422,10 +470,19 @@ Building a geocoder makes no network call.
 ### RentCast provider
 
 `RentCastComparableSource` (`DATA_PROVIDER=rentcast`, `RENTCAST_API_KEY` required) makes one
-`GET /v1/listings/rental/long-term` call per uncached area, searching by the subject's
-coordinates and a radius. Listings missing any field a `Comparable` needs are skipped (and
-counted in a log warning). Results are cached in the application's SQLite database
-(`provider_cache` table, `persistence/cache.py`) by rounded coordinates, radius and limit, so
+`GET /v1/listings/rental/long-term` call per uncached search: the subject's coordinates, the
+**chosen radius in miles** (the same one the engine filters by), `limit=500` (RentCast's maximum;
+`RENTCAST_LIMIT` can lower it), `status=Active` and, for a building type other than All, its
+`propertyType`. RentCast returns listings sorted by `lastSeenDate`, most recent first, not by
+distance, so when a search area holds more listings than the limit it is the least recently seen
+that are dropped, not the farthest. The source logs
+`RentCast: N listings in X ms (radius R miles, limit L, nearest D miles)` and, when the
+response has as many listings as the limit, `RentCast response reached limit (L); nearby listings
+may be missing.` Listings missing any field a `Comparable` needs are skipped (and
+counted in a log warning); each kept comparable carries `days_on_market` for the lookback
+window. Results are cached in the application's SQLite database
+(`provider_cache` table, `persistence/cache.py`) by rounded coordinates, radius, limit and
+building type (not the lookback, which is applied afterwards), so
 they survive restarts: the router builds a new source per request and every call is
 billable. The cache is best effort; if the database is unavailable it reads as empty and the
 API is called normally. Entries expire after `RENTCAST_CACHE_TTL_SECONDS` and expired rows
@@ -597,7 +654,7 @@ holds the default subject coordinate, a plain constant):
 | Variable | Default |
 |---|---|
 | `APP_NAME` | `Rent Pricing Tool` |
-| `VERSION` | `0.2.0` |
+| `VERSION` | `0.3.0` |
 | `ENVIRONMENT` | `development` |
 | `DATABASE_PATH` | `data/rentpricingtool.db` in the project |
 

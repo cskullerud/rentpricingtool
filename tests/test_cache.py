@@ -211,9 +211,11 @@ def test_nearby_locations_share_an_entry(cache):
 
 def test_a_different_radius_or_limit_is_a_miss(cache):
     transport = CountingTransport()
-    make_source(transport, cache, radius_miles=5).get_comparables(SUBJECT)
-    make_source(transport, cache, radius_miles=2).get_comparables(SUBJECT)
-    make_source(transport, cache, radius_miles=5, limit=50).get_comparables(SUBJECT)
+    from dataclasses import replace
+
+    make_source(transport, cache).get_comparables(replace(SUBJECT, search_radius_miles=5.0))
+    make_source(transport, cache).get_comparables(replace(SUBJECT, search_radius_miles=2.0))
+    make_source(transport, cache, limit=50).get_comparables(replace(SUBJECT, search_radius_miles=5.0))
     assert transport.calls == 3
 
 

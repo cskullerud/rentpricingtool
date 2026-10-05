@@ -120,6 +120,7 @@ def test_funnel_counts_each_stage():
         "comparables_after_attribute_filter": 6,  # 9 - 2 wrong beds - 1 too big
         "comparables_after_outlier_filter": 5,  # 6 - 1 outlier
         "comparables_used": 5,
+        "comparables_after_lookback_filter": 13,  # the test comparables have no listing age, so all pass
     }
     assert result["comparable_count"] == 5
     assert result["confidence"] == "medium"
@@ -139,14 +140,16 @@ def test_funnel_stages_never_grow_on_the_mock_data():
     f = run_valuation(SUBJECT, MockComparableSource())["funnel"]
     assert (f["comparables_fetched"], f["comparables_after_distance_filter"]) == (26, 24)
     assert (f["comparables_after_attribute_filter"], f["comparables_after_outlier_filter"]) == (18, 16)
-    values = list(f.values())
-    assert values == sorted(values, reverse=True)
+    stages = ["comparables_fetched", "comparables_after_lookback_filter", "comparables_after_distance_filter",
+              "comparables_after_attribute_filter", "comparables_after_outlier_filter", "comparables_used"]
+    counts = [f[name] for name in stages]
+    assert counts == sorted(counts, reverse=True) and counts[1] == 26
 
 
 def test_funnel_as_dict_has_the_documented_keys():
-    assert list(Funnel(5, 4, 3, 2, 2).as_dict()) == [
+    assert list(Funnel(5, 4, 3, 2, 2, 5).as_dict()) == [
         "comparables_fetched", "comparables_after_distance_filter", "comparables_after_attribute_filter",
-        "comparables_after_outlier_filter", "comparables_used",
+        "comparables_after_outlier_filter", "comparables_used", "comparables_after_lookback_filter",
     ]
 
 
@@ -174,8 +177,9 @@ def test_insufficient_data_response_includes_the_funnel_and_no_confidence():
     assert body["funnel"] == {
         "comparables_fetched": 6, "comparables_after_distance_filter": 2,
         "comparables_after_attribute_filter": 2, "comparables_after_outlier_filter": 2,
-        "comparables_used": 2,
+        "comparables_used": 2, "comparables_after_lookback_filter": 6,
     }
+    assert body["search"]["radius_miles"] == 1.0 and body["search"]["nearest_listing_miles"] == 0.0
     assert "confidence" not in body
 
 
@@ -202,8 +206,9 @@ def test_each_valuation_logs_one_funnel_line(caplog):
         run_valuation(SUBJECT, ListSource(mixed_comparables()))
     (record,) = funnel_records(caplog)
     assert record.getMessage() == (
-        "valuation_funnel status=ok fetched=13 after_distance=9 after_attributes=6 "
-        "after_outliers=5 used=5 minimum=3 confidence=medium"
+        "valuation_funnel status=ok fetched=13 after_lookback=13 after_distance=9 after_attributes=6 "
+        "after_outliers=5 used=5 minimum=3 confidence=medium radius_miles=1 lookback_days=90 "
+        "nearest_miles=0.00 sqft=given"
     )
 
 

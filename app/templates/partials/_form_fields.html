@@ -1,6 +1,18 @@
 {# form: ValuationForm (values, errors, show_coordinates). Shows what was typed, with one message per field. #}
 {% macro field_error(name) %}{% if form.errors.get(name) %}<div class="invalid-feedback d-block" id="{{ name }}-error">{{ form.errors[name] }}</div>{% endif %}{% endmacro %}
 {% macro invalid(name) %}{% if form.errors.get(name) %} is-invalid{% endif %}{% endmacro %}
+{% macro choice(name, label, options, hint) %}
+  <div class="col-12 col-sm-4">
+    <label for="{{ name }}" class="form-label">{{ label }}</label>
+    <select class="form-select form-select-lg{{ invalid(name) }}" id="{{ name }}" name="{{ name }}">
+      {% for option in options %}
+      <option value="{{ option.value }}" data-summary="{{ option.summary }}"{% if option.value == form.values[name] %} selected{% endif %}>{{ option.label }}</option>
+      {% endfor %}
+    </select>
+    {{ field_error(name) }}
+    <div class="form-text" id="{{ name }}-hint">{{ hint }}</div>
+  </div>
+{% endmacro %}
 
 <div class="row g-3">
   <div class="col-12">
@@ -30,11 +42,16 @@
     {{ field_error('baths') }}
   </div>
   <div class="col-12 col-sm-4">
-    <label for="sqft" class="form-label">Square feet</label>
+    <label for="sqft" class="form-label">Square feet (optional)</label>
     <input type="number" class="form-control form-control-lg{{ invalid('sqft') }}" id="sqft" name="sqft"
-           value="{{ form.values.sqft }}" inputmode="numeric" min="1" step="1" required>
+           value="{{ form.values.sqft }}" inputmode="numeric" min="1" step="1">
     {{ field_error('sqft') }}
+    <div class="form-text" id="sqft-hint">Leave blank to skip size matching; confidence is lowered one level.</div>
   </div>
+
+  {{ choice('search_radius_miles', 'Search radius (miles)', radius_options, 'Distance in miles from the property.') }}
+  {{ choice('lookback_days', 'Lookback window (days)', lookback_options, 'How recently listings were posted.') }}
+  {{ choice('property_type', 'Building type', property_type_options, 'RentCast data only.') }}
 
   <div class="col-12">
     <button class="btn btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#coordinates"
@@ -58,6 +75,10 @@
         <div class="col-12 form-text">Give both or neither. Coordinates skip the address lookup.</div>
       </div>
     </div>
+  </div>
+
+  <div class="col-12">
+    {% include "partials/_search_summary.html" %}
   </div>
 
   <div class="col-12">

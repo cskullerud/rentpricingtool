@@ -8,6 +8,12 @@
       <span class="ms-1 text-body-secondary" id="comparable-count">Based on {{ result.comparable_count }} comparable {{ 'property' if result.comparable_count == 1 else 'properties' }}</span>
     </p>
 
+    {% if result.confidence_notes %}
+    <div class="alert alert-info py-2" role="note" id="confidence-notes">
+      <ul class="mb-0 ps-3">{% for note in result.confidence_notes %}<li>{{ note }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
     {% if result.confidence == 'low' %}
     <div class="alert alert-warning py-2" role="note" id="low-confidence-note">
       Only a few comparables were available, so treat this as a rough estimate.
@@ -20,6 +26,8 @@
       <div class="col-6 col-md-3"><div class="small text-body-secondary">High end (75th)</div><div class="fw-semibold">{{ result.p75 | money }}</div></div>
       <div class="col-6 col-md-3"><div class="small text-body-secondary">Average</div><div class="fw-semibold">{{ result.average | money }}</div></div>
     </div>
+
+    <p class="small text-body-secondary mb-3" id="search-used">Search used: {{ search_line }}</p>
 
     <h3 class="h6">How the comparables were narrowed down</h3>
     {% include "partials/_funnel.html" %}

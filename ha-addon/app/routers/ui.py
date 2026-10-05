@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
 
+from app.config import MIN_COMPARABLES_REQUIRED
 from app.persistence.repositories import ValuationRepository, get_repository
 from app.routers.valuation import get_comparable_source, get_geocoder
 from app.schemas import ValuationResponse
@@ -17,10 +18,40 @@ from app.services.geocoding import AddressNotFoundError, Geocoder
 from app.services.valuation_engine import InsufficientDataError, run_valuation
 from app.ui import csrf, viewmodels
 from app.ui.forms import ValuationForm
-from app.ui.templating import UI_PREFIX, prefixed, render
+from app.services.search_options import (
+    DEFAULT_LOOKBACK_DAYS,
+    DEFAULT_PROPERTY_TYPE,
+    DEFAULT_RADIUS_MILES,
+    LOOKBACK_OPTIONS_DAYS,
+    PROPERTY_TYPES,
+    RADIUS_OPTIONS_MILES,
+)
+from app.ui.templating import UI_PREFIX, data_source_badge, geocoder_info, prefixed, render
 
 logger = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
+
+
+def summary_rows(form: ValuationForm) -> list[dict]:
+    """The Search criteria panel for what the form currently holds. An invalid select (a tampered
+    post) shows the default instead, so the panel never displays something the search would not use."""
+    values = form.values
+    try:
+        radius = float(values["search_radius_miles"])
+    except ValueError:
+        radius = DEFAULT_RADIUS_MILES
+    lookback = int(values["lookback_days"]) if values["lookback_days"].isdigit() else DEFAULT_LOOKBACK_DAYS
+    property_type = values["property_type"] if values["property_type"] in PROPERTY_TYPES else DEFAULT_PROPERTY_TYPE
+    return viewmodels.search_summary(
+        address=values["address"],
+        radius_miles=radius if radius in RADIUS_OPTIONS_MILES else DEFAULT_RADIUS_MILES,
+        lookback_days=lookback if lookback in LOOKBACK_OPTIONS_DAYS else DEFAULT_LOOKBACK_DAYS,
+        property_type=property_type,
+        sqft_given=bool(values["sqft"].strip()),
+        minimum_comparables=MIN_COMPARABLES_REQUIRED,
+        data_source=data_source_badge()["label"],
+        geocoder=geocoder_info()["label"],
+    )
 
 
 def render_form(request: Request, form: ValuationForm, status_code: int = 200, **context) -> HTMLResponse:
@@ -31,7 +62,7 @@ def render_form(request: Request, form: ValuationForm, status_code: int = 200, *
         cookie_value = csrf.new_cookie_value()
     response = render(
         request, "valuation_form.html", active="valuation", status_code=status_code,
-        form=form, csrf_token=csrf.token_for(cookie_value), **context,
+        form=form, csrf_token=csrf.token_for(cookie_value), summary_rows=summary_rows(form), **context,
     )
     if is_new:
         forwarded = request.headers.get("x-forwarded-proto", request.url.scheme)
@@ -79,15 +110,24 @@ async def submit_valuation(
         result = await run_in_threadpool(run_valuation, form.request, source, repository, geocoder)
     except InsufficientDataError as exc:
         body = exc.to_response()
-        funnel = body.get("funnel")
+        funnel, search = body.get("funnel"), body.get("search")
         return render_form(
             request, form,
             insufficient={
                 "comparable_count": exc.comparable_count,
                 "minimum_required": exc.minimum_required,
                 "detail": body["detail"],
-                "funnel_rows": viewmodels.funnel_rows(funnel) if funnel else [],
-                "explanation": viewmodels.explain_insufficient(funnel, exc.minimum_required) if funnel else "",
+                "funnel_rows": (
+                    viewmodels.funnel_rows(
+                        funnel,
+                        search["radius_miles"] if search else None,
+                        search["lookback_days"] if search else None,
+                        search["sqft_used"] if search else True,
+                    )
+                    if funnel else []
+                ),
+                "explanation": viewmodels.explain_insufficient(funnel, exc.minimum_required, search) if funnel else "",
+                "search_line": viewmodels.search_line(search) if search else "",
             },
         )
     except AddressNotFoundError as exc:
@@ -108,11 +148,15 @@ async def submit_valuation(
         return render_form(request, form, status_code=500, alert=alert("Something went wrong. Please try again."))
 
     response = ValuationResponse(**result).model_dump()
+    search = response["search"]
     return render_form(
         request, form,
         result=response,
         confidence=viewmodels.confidence_style(response["confidence"]),
-        funnel_rows=viewmodels.funnel_rows(response["funnel"]),
+        funnel_rows=viewmodels.funnel_rows(
+            response["funnel"], search["radius_miles"], search["lookback_days"], search["sqft_used"]
+        ),
+        search_line=viewmodels.search_line(search),
     )
 
 

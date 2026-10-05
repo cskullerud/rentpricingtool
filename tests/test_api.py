@@ -23,6 +23,7 @@ def test_valuation_returns_engine_result():
     body = response.json()
     assert set(body) == {
         "comparable_count", "p25", "median", "p75", "average", "recommended_rent", "confidence", "funnel",
+        "confidence_notes", "search",
     }
     assert body["comparable_count"] > 0
     assert body["recommended_rent"] == body["median"]

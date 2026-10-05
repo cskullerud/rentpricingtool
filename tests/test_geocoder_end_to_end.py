@@ -312,7 +312,7 @@ def test_the_funnel_and_confidence_are_unchanged(client, census, source):
     body = client.post("/valuation", json=JSON_BODY).json()
     assert body["funnel"] == {
         "comparables_fetched": 4, "comparables_after_distance_filter": 4, "comparables_after_attribute_filter": 4,
-        "comparables_after_outlier_filter": 4, "comparables_used": 4,
+        "comparables_after_outlier_filter": 4, "comparables_used": 4, "comparables_after_lookback_filter": 4,
     }
 
 

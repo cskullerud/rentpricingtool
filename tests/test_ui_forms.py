@@ -17,7 +17,11 @@ def form(**overrides):
 def test_blank_form_has_no_errors_and_is_not_valid():
     blank = ValuationForm.blank()
     assert blank.errors == {} and not blank.is_valid
-    assert set(blank.values.values()) == {""}
+    # the text fields are empty; the three selects start on their defaults (1 mile, 90 days, all types)
+    assert blank.values == {
+        "address": "", "beds": "", "baths": "", "sqft": "", "latitude": "", "longitude": "",
+        "search_radius_miles": "1", "lookback_days": "90", "property_type": "all",
+    }
 
 
 def test_valid_form_becomes_the_existing_valuation_request():
@@ -82,9 +86,15 @@ def test_invalid_bathrooms(baths):
 
 # --- square feet: > 0 -------------------------------------------------------------------
 
-@pytest.mark.parametrize("sqft", ["0", "-5", "", "abc", "1.5", "1e3", "100001"])
+@pytest.mark.parametrize("sqft", ["0", "-5", "abc", "1.5", "1e3", "100001"])
 def test_invalid_square_footage(sqft):
     assert "sqft" in form(sqft=sqft).errors
+
+
+@pytest.mark.parametrize("sqft", ["", "   "])
+def test_blank_square_footage_is_allowed_and_means_no_size_matching(sqft):
+    f = form(sqft=sqft)
+    assert f.is_valid and f.errors == {} and f.request.sqft is None
 
 
 def test_square_footage_must_be_above_zero():
@@ -133,11 +143,12 @@ def test_every_entered_value_is_kept_when_validation_fails():
     assert not f.is_valid
     assert f.values == {
         "address": "9 Elm St", "beds": "", "baths": "1.5", "sqft": "0", "latitude": "32.7", "longitude": "",
+        "search_radius_miles": "1", "lookback_days": "90", "property_type": "all",
     }
 
 
 def test_all_errors_are_reported_at_once():
-    f = form(address="", beds="", baths="", sqft="")
+    f = form(address="", beds="", baths="", sqft="0")
     assert set(f.errors) == {"address", "beds", "baths", "sqft"}
 
 

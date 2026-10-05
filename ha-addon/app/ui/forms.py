@@ -12,8 +12,25 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from app.schemas import ValuationRequest
+from app.services.search_options import (
+    DEFAULT_LOOKBACK_DAYS,
+    DEFAULT_PROPERTY_TYPE,
+    DEFAULT_RADIUS_MILES,
+    LOOKBACK_OPTIONS_DAYS,
+    PROPERTY_TYPES,
+    RADIUS_OPTIONS_MILES,
+)
 
-FIELDS = ("address", "beds", "baths", "sqft", "latitude", "longitude")
+FIELDS = (
+    "address", "beds", "baths", "sqft", "latitude", "longitude",
+    "search_radius_miles", "lookback_days", "property_type",
+)
+# What a select shows when it was not submitted (an older page, or a script posting only the basics).
+SELECT_DEFAULTS = {
+    "search_radius_miles": f"{DEFAULT_RADIUS_MILES:g}",
+    "lookback_days": str(DEFAULT_LOOKBACK_DAYS),
+    "property_type": DEFAULT_PROPERTY_TYPE,
+}
 
 MAX_ADDRESS_LENGTH = 200
 MAX_BEDS = 50
@@ -46,7 +63,7 @@ class ValuationForm:
 
     @classmethod
     def blank(cls) -> "ValuationForm":
-        return cls(values={name: "" for name in FIELDS})
+        return cls(values={name: SELECT_DEFAULTS.get(name, "") for name in FIELDS})
 
     @classmethod
     def from_form(cls, data: Mapping) -> "ValuationForm":
@@ -55,6 +72,8 @@ class ValuationForm:
         for name in FIELDS:
             raw = data.get(name, "")
             values[name] = raw.strip() if isinstance(raw, str) else ""
+            if name in SELECT_DEFAULTS and not values[name]:
+                values[name] = SELECT_DEFAULTS[name]
         form = cls(values=values)
         form._validate()
         return form
@@ -71,20 +90,48 @@ class ValuationForm:
 
         beds = self._whole("beds", v["beds"], "Enter the number of bedrooms.", "bedrooms", MAX_BEDS, minimum=0)
         baths = self._decimal("baths", v["baths"], "Enter the number of bathrooms.", "bathrooms", MAX_BATHS)
-        sqft = self._whole(
-            "sqft", v["sqft"].replace(",", "").replace(" ", ""),
-            "Enter the square footage.", "square footage", MAX_SQFT, minimum=1,
-        )
+        # Square feet are optional: blank means "do not match on size" (confidence is lowered instead).
+        sqft = None
+        sqft_text = v["sqft"].replace(",", "").replace(" ", "")
+        if sqft_text:
+            sqft = self._whole("sqft", sqft_text, "", "square footage", MAX_SQFT, minimum=1)
         latitude, longitude = self._coordinates(v["latitude"], v["longitude"])
+        radius = self._radius(v["search_radius_miles"])
+        lookback = self._lookback(v["lookback_days"])
+        property_type = self._property_type(v["property_type"])
 
         if self.errors:
             return
         try:
             self.request = ValuationRequest(
-                address=address, beds=beds, baths=baths, sqft=sqft, latitude=latitude, longitude=longitude
+                address=address, beds=beds, baths=baths, sqft=sqft, latitude=latitude, longitude=longitude,
+                search_radius_miles=radius, lookback_days=lookback, property_type=property_type,
             )
         except ValidationError:  # should not happen after the checks above; never show internals
             self.errors["address"] = "Check the details and try again."
+
+    def _radius(self, raw: str) -> float:
+        """The search radius in miles: one of the offered choices. The text is normalised ("1.0" -> "1")."""
+        if _DECIMAL.match(raw) and float(raw) in RADIUS_OPTIONS_MILES:
+            self.values["search_radius_miles"] = f"{float(raw):g}"
+            return float(raw)
+        self.errors["search_radius_miles"] = "Choose a search radius from the list (in miles)."
+        return DEFAULT_RADIUS_MILES
+
+    def _lookback(self, raw: str) -> int:
+        if _WHOLE.match(raw) and int(raw) in LOOKBACK_OPTIONS_DAYS:
+            self.values["lookback_days"] = str(int(raw))
+            return int(raw)
+        self.errors["lookback_days"] = "Choose a lookback window from the list (in days)."
+        return DEFAULT_LOOKBACK_DAYS
+
+    def _property_type(self, raw: str) -> str:
+        key = raw.lower()
+        if key in PROPERTY_TYPES:
+            self.values["property_type"] = key
+            return key
+        self.errors["property_type"] = "Choose a building type from the list."
+        return DEFAULT_PROPERTY_TYPE
 
     def _whole(self, name, raw, missing, label, maximum, minimum) -> int | None:
         if not raw:
