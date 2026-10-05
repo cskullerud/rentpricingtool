@@ -72,14 +72,15 @@ def _log_funnel(
     funnel: quality.Funnel, confidence: str | None, status: str, minimum: int, search: dict
 ) -> None:
     """One structured line per valuation: key=value text, plus the same fields as log-record
-    attributes (record.funnel, record.confidence, record.search, ...) for JSON or other structured
-    handlers. Distances are miles. No address or other request detail is logged."""
+    attributes (record.funnel, record.confidence, record.building_type, record.search, ...) for JSON
+    or other structured handlers. building_type is all, home, condo or apartment; distances are
+    miles. No address or other request detail is logged."""
     fields = funnel.as_dict()
     nearest = search["nearest_listing_miles"]
     logger.info(
         "valuation_funnel status=%s fetched=%d after_lookback=%d after_distance=%d after_attributes=%d "
-        "after_outliers=%d used=%d minimum=%d confidence=%s radius_miles=%g lookback_days=%d "
-        "nearest_miles=%s sqft=%s",
+        "after_outliers=%d used=%d minimum=%d confidence=%s building_type=%s radius_miles=%g "
+        "lookback_days=%d nearest_miles=%s sqft=%s",
         status,
         fields["comparables_fetched"],
         fields["comparables_after_lookback_filter"],
@@ -89,6 +90,7 @@ def _log_funnel(
         fields["comparables_used"],
         minimum,
         confidence or "none",
+        search["property_type"],
         search["radius_miles"],
         search["lookback_days"],
         "none" if nearest is None else f"{nearest:.2f}",
@@ -98,6 +100,7 @@ def _log_funnel(
             "funnel": fields,
             "minimum_required": minimum,
             "confidence": confidence,
+            "building_type": search["property_type"],
             "search": search,
         },
     )

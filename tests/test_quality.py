@@ -207,8 +207,8 @@ def test_each_valuation_logs_one_funnel_line(caplog):
     (record,) = funnel_records(caplog)
     assert record.getMessage() == (
         "valuation_funnel status=ok fetched=13 after_lookback=13 after_distance=9 after_attributes=6 "
-        "after_outliers=5 used=5 minimum=3 confidence=medium radius_miles=1 lookback_days=90 "
-        "nearest_miles=0.00 sqft=given"
+        "after_outliers=5 used=5 minimum=3 confidence=medium building_type=all radius_miles=1 "
+        "lookback_days=90 nearest_miles=0.00 sqft=given"
     )
 
 

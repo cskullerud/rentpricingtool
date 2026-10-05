@@ -214,7 +214,7 @@ which is where it is most useful. Neither field is stored in the history table.
 Each valuation, successful or not, writes one log line from `valuation_engine`, for example:
 
 ```
-valuation_funnel status=ok fetched=26 after_lookback=26 after_distance=24 after_attributes=18 after_outliers=16 used=16 minimum=3 confidence=high radius_miles=1 lookback_days=90 nearest_miles=0.20 sqft=given
+valuation_funnel status=ok fetched=26 after_lookback=26 after_distance=24 after_attributes=18 after_outliers=16 used=16 minimum=3 confidence=high building_type=all radius_miles=1 lookback_days=90 nearest_miles=0.20 sqft=given
 ```
 
 The same values are attached to the log record as attributes (`record.funnel`,
@@ -654,7 +654,7 @@ holds the default subject coordinate, a plain constant):
 | Variable | Default |
 |---|---|
 | `APP_NAME` | `Rent Pricing Tool` |
-| `VERSION` | `0.3.0` |
+| `VERSION` | `0.3.1` |
 | `ENVIRONMENT` | `development` |
 | `DATABASE_PATH` | `data/rentpricingtool.db` in the project |
 

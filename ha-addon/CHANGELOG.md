@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- The `valuation_funnel` line in the Log tab now includes `building_type` (`all`, `home`, `condo`
+  or `apartment`), for successful and "not enough data" valuations alike, so each valuation's
+  search can be read back from the log.
+
 ## 0.3.0
 
 - **Search controls on the form:** Search radius (0.5, 1, 2, 3 or 5 **miles**, default 1), Lookback

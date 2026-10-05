@@ -107,10 +107,10 @@ def test_changelog_matches_the_version():
     assert changelog.index(f"## {CONFIG['version']}") < changelog.index("## 0.1.1")  # newest first
 
 
-def test_the_version_is_0_3_0_and_matches_the_app():
+def test_the_version_is_0_3_1_and_matches_the_app():
     from app.config import VERSION
 
-    assert CONFIG["version"] == "0.3.0"
+    assert CONFIG["version"] == "0.3.1"
     if not os.getenv("VERSION"):  # the app default; an environment override would legitimately differ
         assert VERSION == CONFIG["version"]
 
